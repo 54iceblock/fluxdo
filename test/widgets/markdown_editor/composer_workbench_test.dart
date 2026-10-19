@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:app_icons/app_icons.dart';
+import 'package:chat_bottom_container/constants.dart';
 import 'package:chat_bottom_container/listener_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
@@ -54,6 +55,7 @@ Future<void> _pump(
   bool desktop = false,
   bool disableAnimations = false,
   bool overlayAppBar = false,
+  double? cachedKeyboardHeight,
 }) async {
   PlatformUtils.debugDesktopOverride = desktop;
   tester.view.physicalSize = Size(width, height);
@@ -79,7 +81,9 @@ Future<void> _pump(
       null,
     ),
   );
-  SharedPreferences.setMockInitialValues({});
+  SharedPreferences.setMockInitialValues({
+    ChatBottomContainerPrefKey.keyboardHeight: ?cachedKeyboardHeight,
+  });
   final prefs = await SharedPreferences.getInstance();
   await tester.runAsync(() async {
     if (!PreloadedDataService().isLoaded) {
@@ -1828,6 +1832,99 @@ void main() {
   }
 
   for (final rich in [false, true]) {
+    for (final cached in [false, true]) {
+      testWidgets('平板微小键盘高度不压缩表情和附件面板 rich=$rich cached=$cached', (
+        tester,
+      ) async {
+        tester.view.viewPadding = const FakeViewPadding(bottom: 24);
+        addTearDown(tester.view.resetViewPadding);
+        final controller = TextEditingController();
+        final focus = FocusNode();
+        await _pump(
+          tester,
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: SizedBox(
+              width: 640,
+              height: 700,
+              child: rich
+                  ? RichComposerEditor(
+                      controller: controller,
+                      focusNode: focus,
+                    )
+                  : MarkdownEditor(
+                      controller: controller,
+                      focusNode: focus,
+                    ),
+            ),
+          ),
+          width: 1200,
+          height: 800,
+          cachedKeyboardHeight: cached ? 24 : null,
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+        focus.requestFocus();
+        await tester.pump();
+        if (!cached) {
+          // 浮动/外接键盘可能仅回报底部栏高度，也会被插件缓存。
+          ChatBottomContainerListenerManager().flutterApi.keyboardHeight(48);
+          await tester.pump();
+        }
+        final formats = find.byKey(const ValueKey('composer-format-row'));
+        final emojiToggle = find.descendant(
+          of: formats,
+          matching: find.byTooltip(S.current.emoji_tab),
+        );
+        await tester.tap(emojiToggle);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        final panel = find.byType(EmojiStickerPanel);
+        expect(panel, findsOneWidget);
+        expect(tester.getSize(panel).height, 280);
+        expect(tester.getRect(panel).bottom, lessThanOrEqualTo(800));
+        expect(tester.takeException(), isNull);
+
+        // 返回浮动/外接键盘时不能继续占住兜底面板的 280 高度。
+        await tester.tap(emojiToggle);
+        await tester.pump();
+        ChatBottomContainerListenerManager().flutterApi.keyboardHeight(48);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(panel, findsNothing);
+        expect(
+          tester.getSize(
+            find.byKey(const ValueKey('composer-keyboard-space')),
+          ).height,
+          24,
+        );
+        await tester.tap(find.byTooltip(S.current.composer_expandToolbar));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 450));
+        final attachment = find.byKey(
+          ValueKey(
+            rich
+                ? 'composer-tool-insert:file attachment'
+                : 'composer-tool-attachment',
+          ),
+        );
+        await tester.scrollUntilVisible(
+          attachment,
+          120,
+          scrollable: find.descendant(
+            of: find.byKey(const ValueKey('composer-tools-panel')),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        await tester.pump();
+        expect(attachment.hitTestable(), findsOneWidget);
+        expect(tester.getRect(attachment).bottom, lessThanOrEqualTo(776));
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        focus.dispose();
+      });
+    }
+
     testWidgets('键盘终态通知不抢跑位置，普通开合逐帧同步浮岛 rich=$rich', (tester) async {
       tester.view.viewPadding = const FakeViewPadding(bottom: 20);
       addTearDown(tester.view.resetViewPadding);
