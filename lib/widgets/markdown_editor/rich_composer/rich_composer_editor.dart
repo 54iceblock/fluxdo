@@ -12,6 +12,7 @@ library;
 import 'insertion_bookmark.dart';
 
 import '../composer_chrome.dart';
+import '../composer_panel_height.dart';
 
 import 'dart:async';
 
@@ -184,6 +185,7 @@ class RichComposerEditor extends StatefulWidget {
     super.key,
     required this.controller,
     this.focusNode,
+    this.autofocus = true,
     this.hintText = '',
     this.header,
     this.metaBar,
@@ -203,6 +205,9 @@ class RichComposerEditor extends StatefulWidget {
   final TextEditingController controller;
 
   final FocusNode? focusNode;
+
+  /// 是否在挂载后立即聚焦正文。创建页可关闭，等待用户选择输入位置。
+  final bool autofocus;
   final String hintText;
 
   /// 滚动头部(标题/标签等元数据区):放进编辑区滚动容器顶部,与正文
@@ -2117,15 +2122,11 @@ class RichComposerEditorState extends State<RichComposerEditor> {
     }
   }
 
-  /// 面板高度:键盘高度已知用键盘高(等高切换),否则 emojiPanelHeight
-  /// 兜底;都含底部安全区。
-  double get _panelHeight {
-    final safeBottom = MediaQuery.viewPaddingOf(context).bottom;
-    final kb = _panelController.keyboardHeight;
-    return kb > 0
-        ? max(kb, safeBottom)
-        : max(widget.emojiPanelHeight, safeBottom);
-  }
+  double get _panelHeight => resolveComposerPanelHeight(
+    keyboardHeight: _panelController.keyboardHeight,
+    fallbackHeight: widget.emojiPanelHeight,
+    safeBottom: MediaQuery.viewPaddingOf(context).bottom,
+  );
 
   /// 构建(或复用)EmojiStickerPanel 缓存实例,docked 与桌面悬浮弹层共用
   Widget _ensureEmojiPanelChild() {
@@ -3922,6 +3923,11 @@ class RichComposerEditorState extends State<RichComposerEditor> {
                                                     ),
                                             caretViewportInsets:
                                                 EdgeInsets.only(
+                                                  // 创建/编辑页的顶栏覆盖在滚动区上方。
+                                                  top:
+                                                      ComposerChromeScope.topInsetOf(
+                                                        context,
+                                                      ),
                                                   bottom:
                                                       bottomInset +
                                                       _toolsAnchor
@@ -3943,7 +3949,7 @@ class RichComposerEditorState extends State<RichComposerEditor> {
                                                 _objectSelection.update,
                                             onObjectMenuRequested:
                                                 _onObjectMenuRequested,
-                                            autofocus: true,
+                                            autofocus: widget.autofocus,
                                             focusNode: _editorFocus,
                                             nodeFactory: _nodeFactory ??=
                                                 buildComposerNodeFactory(
@@ -4154,7 +4160,11 @@ class RichComposerEditorState extends State<RichComposerEditor> {
               _returningToKeyboard = false;
             } else if (wasCustom) {
               _returningToKeyboard =
-                  MediaQuery.viewInsetsOf(context).bottom == 0;
+                  MediaQuery.viewInsetsOf(context).bottom == 0 &&
+                  (_panelController.keyboardHeight == 0 ||
+                      isComposerDockedKeyboardHeight(
+                        _panelController.keyboardHeight,
+                      ));
             }
             _currentPanel = next;
             _showEmojiPanel = next == _RichPanelType.emoji;

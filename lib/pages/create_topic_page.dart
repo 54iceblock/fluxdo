@@ -1373,6 +1373,9 @@ class _CreateTopicPageState extends ConsumerState<CreateTopicPage> {
                                           ? const SizedBox.shrink()
                                           : RichComposerEditor(
                                               key: _richKey,
+                                              // 手机进入页面时不自动跳到文末，避免
+                                              // 键盘弹起与正文定位同时改变可视区域。
+                                              autofocus: desktop,
                                               onSwitchToSource: () =>
                                                   _setViewMode(
                                                     ComposerViewMode.source,
