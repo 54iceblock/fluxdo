@@ -428,6 +428,7 @@ class _CreateTopicPageState extends ConsumerState<CreateTopicPage> {
 
     if (confirm == true && mounted) {
       _discarded = true;
+      _draftController.disable();
       await _draftController.deleteDraft();
       if (mounted) Navigator.of(context).pop();
     }
