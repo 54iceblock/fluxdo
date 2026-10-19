@@ -184,6 +184,7 @@ class RichComposerEditor extends StatefulWidget {
     super.key,
     required this.controller,
     this.focusNode,
+    this.autofocus = true,
     this.hintText = '',
     this.header,
     this.metaBar,
@@ -203,6 +204,9 @@ class RichComposerEditor extends StatefulWidget {
   final TextEditingController controller;
 
   final FocusNode? focusNode;
+
+  /// 是否在挂载后立即聚焦正文。创建页可关闭，等待用户选择输入位置。
+  final bool autofocus;
   final String hintText;
 
   /// 滚动头部(标题/标签等元数据区):放进编辑区滚动容器顶部,与正文
@@ -3922,6 +3926,11 @@ class RichComposerEditorState extends State<RichComposerEditor> {
                                                     ),
                                             caretViewportInsets:
                                                 EdgeInsets.only(
+                                                  // 创建/编辑页的顶栏覆盖在滚动区上方。
+                                                  top:
+                                                      ComposerChromeScope.topInsetOf(
+                                                        context,
+                                                      ),
                                                   bottom:
                                                       bottomInset +
                                                       _toolsAnchor
@@ -3943,7 +3952,7 @@ class RichComposerEditorState extends State<RichComposerEditor> {
                                                 _objectSelection.update,
                                             onObjectMenuRequested:
                                                 _onObjectMenuRequested,
-                                            autofocus: true,
+                                            autofocus: widget.autofocus,
                                             focusNode: _editorFocus,
                                             nodeFactory: _nodeFactory ??=
                                                 buildComposerNodeFactory(

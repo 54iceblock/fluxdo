@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:app_icons/app_icons.dart';
 import 'package:chat_bottom_container/listener_manager.dart';
@@ -52,10 +53,17 @@ Future<void> _pump(
   bool dark = false,
   bool desktop = false,
   bool disableAnimations = false,
+  bool overlayAppBar = false,
 }) async {
   PlatformUtils.debugDesktopOverride = desktop;
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
+  if (overlayAppBar) {
+    tester.view.padding = const FakeViewPadding(top: 47);
+    tester.view.viewPadding = const FakeViewPadding(top: 47);
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+  }
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetViewInsets);
@@ -119,6 +127,7 @@ Future<void> _pump(
                 key: const ValueKey('capture-workbench'),
                 child: Scaffold(
                   resizeToAvoidBottomInset: false,
+                  extendBodyBehindAppBar: overlayAppBar,
                   appBar: AppBar(title: const Text('新话题')),
                   body: child,
                 ),
@@ -180,9 +189,321 @@ class _TableFixtureCodec extends SemanticComposerCodec {
   }
 }
 
+class _DelayedDraftCodec extends SemanticComposerCodec {
+  final loaded = Completer<ComposerImportResult<SemanticNode>>();
+
+  @override
+  Future<ComposerImportResult<SemanticNode>> import(
+    String raw, {
+    Duration timeout = const Duration(seconds: 10),
+    bool guarded = true,
+  }) => loaded.future;
+}
+
 void main() {
   setUp(() => PlatformUtils.debugDesktopOverride = false);
   tearDown(() => PlatformUtils.debugDesktopOverride = null);
+
+  for (final missing in [false, true]) {
+    for (final resolveFrame in [4, 16, 40]) {
+      testWidgets('混合媒体草稿恢复后布局稳定 frame=$resolveFrame missing=$missing', (
+        tester,
+      ) async {
+        final pendingUploads = <(RequestOptions, RequestInterceptorHandler)>[];
+        final mock = InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.path == '/uploads/lookup-urls') {
+              pendingUploads.add((options, handler));
+            } else {
+              handler.resolve(
+                Response(requestOptions: options, data: <String, dynamic>{}),
+              );
+            }
+          },
+        );
+        DiscourseService().dio.interceptors.insert(0, mock);
+        addTearDown(() => DiscourseService().dio.interceptors.remove(mock));
+        // 每个时序独立解析，避免上个用例的 URL 缓存跳过加载态。
+        final raw = File('test/fixtures/composer_mixed_media_draft.md')
+            .readAsStringSync()
+            .replaceAll(
+              'upload://',
+              'upload://case${resolveFrame}${missing ? 'missing' : 'loaded'}',
+            );
+        final controller = TextEditingController(text: raw);
+        final codec = _DelayedDraftCodec();
+        final chrome = ComposerChromeController();
+        await _pump(
+          tester,
+          ComposerChromeScope(
+            controller: chrome,
+            topInset: 131,
+            child: RichComposerEditor(
+              controller: controller,
+              semanticCodec: codec,
+              header: const SizedBox(height: 180),
+            ),
+          ),
+          height: 900,
+          overlayAppBar: true,
+        );
+        final result = await tester.runAsync(
+          () => SemanticComposerCodec().import(raw),
+        );
+        codec.loaded.complete(result!);
+        await tester.pump();
+        await tester.pump();
+        final scroll = tester
+            .widget<CustomScrollView>(find.byType(CustomScrollView))
+            .controller!;
+        final initialExtent =
+            scroll.position.maxScrollExtent + scroll.position.viewportDimension;
+        var resolved = false;
+        for (var i = 0; i < 100; i++) {
+          tester.view.viewInsets = FakeViewPadding(
+            bottom: (i * 24.0).clamp(0, 360),
+          );
+          if (i >= resolveFrame && pendingUploads.isNotEmpty) {
+            resolved = true;
+            for (final (options, handler) in pendingUploads) {
+              handler.resolve(
+                Response(
+                  requestOptions: options,
+                  data: [
+                    if (!missing)
+                      for (final url in options.data['short_urls'] as List)
+                        {
+                          'short_url': url,
+                          'url': 'https://example.invalid/test.jpg',
+                        },
+                  ],
+                ),
+              );
+            }
+            pendingUploads.clear();
+          }
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        expect(resolved, isTrue);
+        final tail = find.text('就反复');
+        final surface = tester.getRect(
+          find.byKey(const ValueKey('composer-island-surface')),
+        );
+        final loadedTail = tester.getRect(tail);
+        final loadedCaret = tester.getRect(find.byType(EditorCaret));
+        expect(
+          scroll.position.maxScrollExtent + scroll.position.viewportDimension,
+          closeTo(initialExtent, 1),
+          reason: '有声明尺寸的图片解析成功或失败都不能改变正文高度',
+        );
+        expect(loadedTail.bottom, greaterThan(131));
+        expect(loadedTail.top, lessThan(surface.top));
+        expect(loadedCaret.top, closeTo(loadedTail.top, 1));
+        expect(loadedCaret.bottom, lessThanOrEqualTo(surface.top));
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        chrome.dispose();
+      });
+    }
+  }
+
+  for (final keyboardFirst in [false, true]) {
+    testWidgets('长草稿恢复后自动定位避开顶栏 keyboardFirst=$keyboardFirst', (tester) async {
+      final controller = TextEditingController(
+        text: List.filled(40, '正文内容').join('\n\n'),
+      );
+      final codec = _DelayedDraftCodec();
+      final chrome = ComposerChromeController();
+      await _pump(
+        tester,
+        ComposerChromeScope(
+          controller: chrome,
+          topInset: 131,
+          child: RichComposerEditor(
+            controller: controller,
+            semanticCodec: codec,
+            header: const SizedBox(height: 180),
+          ),
+        ),
+        height: 640,
+        overlayAppBar: true,
+      );
+      expect(find.byType(FluxdoEditor), findsNothing);
+      if (keyboardFirst) {
+        tester.view.viewInsets = const FakeViewPadding(bottom: 340);
+        await tester.pump();
+      }
+      codec.loaded.complete(
+        ComposerImportResult.success(
+          SemanticNode(
+            'doc',
+            content: [
+              for (var i = 0; i < 40; i++)
+                SemanticNode(
+                  'paragraph',
+                  content: [SemanticNode('text', text: '正文第 $i 段内容')],
+                ),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(
+        tester
+            .widget<FluxdoEditor>(find.byType(FluxdoEditor))
+            .focusNode!
+            .hasFocus,
+        isTrue,
+      );
+      for (final height
+          in keyboardFirst ? <double>[] : [40.0, 120.0, 200.0, 300.0, 340.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: height);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final caret = tester.getRect(find.byType(EditorCaret));
+      final surface = tester.getRect(
+        find.byKey(const ValueKey('composer-island-surface')),
+      );
+      expect(caret.top, greaterThanOrEqualTo(131), reason: '键盘弹起后光标不能藏进页面顶栏');
+      expect(caret.bottom, lessThanOrEqualTo(surface.top));
+      // 键盘已经打开后再移动光标，也必须使用同一有效视口。
+      final editor = tester.widget<FluxdoEditor>(find.byType(FluxdoEditor));
+      editor.state.updateSelection(
+        EditorSelection.collapsed(
+          EditorPosition(blockId: editor.state.blocks.first.id, offset: 1),
+        ),
+      );
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final movedCaret = tester.getRect(find.byType(EditorCaret));
+      expect(movedCaret.top, greaterThanOrEqualTo(131));
+      expect(movedCaret.bottom, lessThanOrEqualTo(surface.top));
+      expect(editor.state.blocks.length, 40);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      chrome.dispose();
+    });
+  }
+
+  testWidgets('源码光标定位避开覆盖正文的顶栏', (tester) async {
+    final text = List.filled(8, '正文内容').join('\n');
+    final controller = TextEditingController(text: text)
+      ..selection = TextSelection.collapsed(offset: text.length);
+    final focus = FocusNode();
+    final chrome = ComposerChromeController();
+    await _pump(
+      tester,
+      ComposerChromeScope(
+        controller: chrome,
+        topInset: 131,
+        child: MarkdownEditor(
+          controller: controller,
+          focusNode: focus,
+          expands: true,
+          header: const SizedBox(height: 180),
+        ),
+      ),
+      height: 640,
+      overlayAppBar: true,
+    );
+    focus.requestFocus();
+    await tester.pump();
+    for (final height in [40.0, 120.0, 200.0, 300.0, 340.0]) {
+      tester.view.viewInsets = FakeViewPadding(bottom: height);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    Rect caretRect() {
+      final render = tester
+          .state<EditableTextState>(find.byType(EditableText))
+          .renderEditable;
+      final local = render.getLocalRectForCaret(controller.selection.extent);
+      return render.localToGlobal(local.topLeft) & local.size;
+    }
+
+    final surface = tester.getRect(
+      find.byKey(const ValueKey('composer-island-surface')),
+    );
+    expect(caretRect().top, greaterThanOrEqualTo(131));
+    expect(caretRect().bottom, lessThanOrEqualTo(surface.top));
+    controller.selection = const TextSelection.collapsed(offset: 1);
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(caretRect().top, greaterThanOrEqualTo(131));
+    expect(caretRect().bottom, lessThanOrEqualTo(surface.top));
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+    focus.dispose();
+    chrome.dispose();
+  });
+
+  for (final lines in [1, 8, 40]) {
+    for (final headerHeight in [0.0, 180.0]) {
+      testWidgets('富文本自动聚焦键盘定位 lines=$lines header=$headerHeight', (
+        tester,
+      ) async {
+        final controller = TextEditingController(
+          text: List.generate(lines, (i) => '正文第 $i 段内容').join('\n\n'),
+        );
+        await _pump(
+          tester,
+          RichComposerEditor(
+            controller: controller,
+            header: SizedBox(height: headerHeight),
+          ),
+        );
+        for (
+          var i = 0;
+          i < 40 && find.byType(FluxdoEditor).evaluate().isEmpty;
+          i++
+        ) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        await tester.pump();
+        final editor = tester.widget<FluxdoEditor>(find.byType(FluxdoEditor));
+        expect(editor.focusNode!.hasFocus, isTrue);
+        for (var cycle = 0; cycle < 3; cycle++) {
+          for (final height in [40.0, 120.0, 200.0, 300.0, 360.0]) {
+            tester.view.viewInsets = FakeViewPadding(bottom: height);
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+          for (var i = 0; i < 20; i++) {
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+          final caret = tester.getRect(find.byType(EditorCaret));
+          final surface = tester.getRect(
+            find.byKey(const ValueKey('composer-island-surface')),
+          );
+          expect(
+            caret.top,
+            greaterThanOrEqualTo(kToolbarHeight),
+            reason: '光标不能滚到视口上方',
+          );
+          expect(
+            caret.bottom,
+            lessThanOrEqualTo(surface.top),
+            reason: '光标必须位于工具栏上方',
+          );
+          tester.view.viewInsets = const FakeViewPadding();
+          await tester.pump(const Duration(milliseconds: 200));
+          await tester.pump(const Duration(milliseconds: 200));
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+      });
+    }
+  }
 
   testWidgets('语义表格真实单元格编辑保留未知属性和来源对齐', (tester) async {
     final codec = _TableFixtureCodec();

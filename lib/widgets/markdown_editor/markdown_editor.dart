@@ -737,20 +737,20 @@ class MarkdownEditorState extends ConsumerState<MarkdownEditor> {
       final caretBottom = caretTop + caretLocal.height;
 
       double? target;
-      // 余量 24 > EditableText scrollPadding(20):我们跳完后其膨胀矩形
-      // 已在视口内,自身的 showOnScreen reveal 直接 no-op,单驱动无抖尾。
-      const margin = 24.0;
-      if (caretBottom > position.viewportDimension - _floatingInset) {
+      final visibleTop = ComposerChromeScope.topInsetOf(context);
+      final visibleBottom = position.viewportDimension - _floatingInset;
+      if (visibleBottom <= visibleTop) return;
+      // 和富文本一样扣除上下遮挡；空间紧张时先保住光标，再留滚动余量。
+      final margin = min(
+        24.0,
+        max(0.0, (visibleBottom - visibleTop - caretLocal.height) / 2),
+      );
+      if (caretBottom > visibleBottom - margin) {
         // 光标在视口下方，需要向下滚
-        target =
-            position.pixels +
-            caretBottom -
-            position.viewportDimension +
-            _floatingInset +
-            margin;
-      } else if (caretTop < 0) {
+        target = position.pixels + caretBottom - visibleBottom + margin;
+      } else if (caretTop < visibleTop + margin) {
         // 光标在视口上方，需要向上滚
-        target = position.pixels + caretTop - margin;
+        target = position.pixels + caretTop - visibleTop - margin;
       }
 
       if (target != null) {
