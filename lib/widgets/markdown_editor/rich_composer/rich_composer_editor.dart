@@ -558,6 +558,25 @@ class RichComposerEditorState extends State<RichComposerEditor> {
     );
   }
 
+  bool _needsUploadPanel(UploadTask task) {
+    if (task.phase == UploadTaskPhase.succeeded) return false;
+    final editor = _editor;
+    if (editor == null) return true;
+    final blockId = _uploadBlocks[task.id];
+    if (blockId != null &&
+        _placeholderNodes.contains(blockId) &&
+        editor.indexOfBlock(blockId) >= 0) {
+      return false;
+    }
+    final gridId = _uploadGrids[task.id];
+    final gridIndex = gridId == null ? -1 : editor.indexOfBlock(gridId);
+    if (gridIndex >= 0) {
+      final block = editor.blocks[gridIndex];
+      if (block is IslandBlock && block.node is ImageGridNode) return false;
+    }
+    return true;
+  }
+
   void _removeUpload(String id) {
     final block = _uploadBlocks.remove(id);
     _uploadGrids.remove(id);
@@ -3817,7 +3836,14 @@ class RichComposerEditorState extends State<RichComposerEditor> {
                         slivers: [
                           SliverToBoxAdapter(child: _recoveryBanner()),
                           SliverToBoxAdapter(
-                            child: UploadTaskPanel(controller: _uploads),
+                            // 撤销可能暂时移走占位；只兜底展示没有正文卡片的任务。
+                            child: ListenableBuilder(
+                              listenable: editor,
+                              builder: (context, _) => UploadTaskPanel(
+                                controller: _uploads,
+                                taskFilter: _needsUploadPanel,
+                              ),
+                            ),
                           ),
                           if (widget.header != null)
                             SliverToBoxAdapter(child: widget.header),
