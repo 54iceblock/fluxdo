@@ -1,11 +1,15 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluxdo/l10n/s.dart';
 import 'package:fluxdo/providers/download_provider.dart';
 import 'package:fluxdo/services/download_service.dart';
+import 'package:fluxdo/services/log/log_writer.dart';
+import 'package:fluxdo/services/network/interceptors/network_log_interceptor.dart';
 import 'package:fluxdo/services/local_notification_service.dart'
     show navigatorKey;
 import 'package:path/path.dart' as p;
@@ -49,6 +53,54 @@ class _DeniedFile extends Fake implements File {
   }
 }
 
+class _DownloadAdapter implements HttpClientAdapter {
+  _DownloadAdapter(this.scenario, this.directory);
+
+  final String scenario;
+  final Directory directory;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (scenario == 'http' || options.method == 'HEAD') {
+      return ResponseBody.fromString('Forbidden', 403);
+    }
+    if (scenario == 'connection') {
+      throw DioException.connectionError(
+        requestOptions: options,
+        reason: 'Could not connect to ${options.uri}',
+        error: const SocketException('Connection refused'),
+      );
+    }
+    Stream<Uint8List> body() async* {
+      if (scenario == 'write') {
+        throw const FileSystemException(
+          'write failed',
+          '/tmp/file.part',
+          OSError('No space left on device', 28),
+        );
+      }
+      yield Uint8List.fromList('attachment content'.codeUnits);
+    }
+
+    if (scenario == 'commit') {
+      // 将最终占位项替换为目录；临时文件照常写入，提交 rename 时必须失败。
+      final target = directory.listSync().whereType<File>().singleWhere(
+        (file) => file.path.endsWith('.pdf'),
+      );
+      target.deleteSync();
+      Directory(target.path).createSync();
+    }
+    return ResponseBody(body(), 200);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   const fileChannel = MethodChannel('com.fluxdo/public_file');
@@ -56,9 +108,9 @@ void main() {
   late PathProviderPlatform originalPathProvider;
   late _FakePathProvider pathProvider;
   late List<MethodCall> nativeCalls;
-  PlatformException? backupError;
+  Object? backupError;
 
-  setUp(() {
+  setUp(() async {
     sandbox = Directory.systemTemp.createTempSync('fluxdo-download-dir-test-');
     originalPathProvider = PathProviderPlatform.instance;
     pathProvider = _FakePathProvider(
@@ -69,6 +121,7 @@ void main() {
     DownloadService.debugIsIOSOverride = true;
     nativeCalls = [];
     backupError = null;
+    await LogWriter.initForTesting(Directory(p.join(sandbox.path, 'logs')));
     binding.defaultBinaryMessenger.setMockMethodCallHandler(fileChannel, (
       call,
     ) async {
@@ -85,7 +138,8 @@ void main() {
     });
   });
 
-  tearDown(() {
+  tearDown(() async {
+    await LogWriter.resetForTesting();
     PathProviderPlatform.instance = originalPathProvider;
     DownloadService.debugIsIOSOverride = null;
     binding.defaultBinaryMessenger.setMockMethodCallHandler(fileChannel, null);
@@ -138,15 +192,36 @@ void main() {
     expect(nativeCalls, isEmpty);
   });
 
-  test('iOS 排除备份失败时向调用方报告异常', () async {
-    backupError = PlatformException(code: 'BACKUP_EXCLUSION_FAILED');
+  for (final missingChannel in [false, true]) {
+    test('iOS ${missingChannel ? '原生通道缺失' : '排除备份失败'}时保留目录并记录可导出警告', () async {
+      backupError = PlatformException(code: 'BACKUP_EXCLUSION_FAILED');
+      if (missingChannel) {
+        binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          fileChannel,
+          null,
+        );
+      }
 
-    await expectLater(
-      DownloadService.resolveDownloadDirectory(),
-      throwsA(isA<PlatformException>()),
-    );
-    expect(pathProvider.downloadsCalls, 0);
-  });
+      final directory = await DownloadService.resolveDownloadDirectory();
+      expect(directory.path, p.join(pathProvider.documentsPath, 'Downloads'));
+      expect(pathProvider.downloadsCalls, 0);
+      await LogWriter.instance.flushNow();
+      final entries = (await LogWriter.readAllContent())
+          .split('\n')
+          .where((line) => line.isNotEmpty)
+          .map((line) => jsonDecode(line) as Map<String, dynamic>);
+      final warning = entries.singleWhere(
+        (entry) => entry['level'] == 'warning',
+      );
+      expect(warning['stage'], 'excludeBackup');
+      expect(warning['fatal'], isFalse);
+      expect(
+        warning['errorType'],
+        missingChannel ? 'MissingPluginException' : 'PlatformException',
+      );
+      expect(warning['stackTrace'], isNotEmpty);
+    });
+  }
 
   test('其他平台继续使用系统下载目录', () async {
     DownloadService.debugIsIOSOverride = false;
@@ -175,11 +250,9 @@ void main() {
     });
   }
 
-  for (final stage in ['创建目录', '预留文件', '设置属性']) {
+  for (final stage in ['创建目录', '预留文件']) {
     testWidgets('目录准备阶段$stage失败时提示用户，不生成下载记录', (tester) async {
-      if (stage == '设置属性') {
-        backupError = PlatformException(code: 'BACKUP_EXCLUSION_FAILED');
-      } else if (stage == '创建目录') {
+      if (stage == '创建目录') {
         File(pathProvider.documentsPath).writeAsStringSync('blocked');
       }
       SharedPreferences.setMockInitialValues({});
@@ -209,7 +282,140 @@ void main() {
       expect(notifier.state, isEmpty);
       expect(prefs.getString('download_items'), isNull);
       expect(find.text(S.current.myBrowser_downloadFailed), findsOneWidget);
+      final entries = await tester.runAsync(() async {
+        await LogWriter.instance.flushNow();
+        return (await LogWriter.readAllContent())
+            .split('\n')
+            .where((line) => line.isNotEmpty)
+            .map((line) => jsonDecode(line) as Map<String, dynamic>)
+            .toList();
+      });
+      final failure = entries!.singleWhere(
+        (entry) => entry['level'] == 'error',
+      );
+      expect(
+        failure['stage'],
+        stage == '创建目录' ? 'createDirectory' : 'reserveFile',
+      );
+      expect(failure['osErrorCode'], stage == '创建目录' ? isNotNull : 1);
+      expect(failure['directory'], endsWith('Documents/Downloads'));
+      expect(failure['stackTrace'], isNotEmpty);
       await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
+    });
+  }
+
+  for (final scenario in [
+    'backup',
+    'head',
+    'http',
+    'connection',
+    'write',
+    'commit',
+  ]) {
+    testWidgets('$scenario 场景留下可导出的阶段及关联日志', (tester) async {
+      if (scenario == 'backup') {
+        backupError = PlatformException(code: 'BACKUP_EXCLUSION_FAILED');
+      }
+      final dio = Dio()
+        ..httpClientAdapter = _DownloadAdapter(
+          scenario,
+          Directory(p.join(pathProvider.documentsPath, 'Downloads')),
+        );
+      dio.interceptors.add(NetworkLogInterceptor());
+      addTearDown(() => dio.close(force: true));
+      SharedPreferences.setMockInitialValues({});
+      final notifier = DownloadNotifier(
+        await SharedPreferences.getInstance(),
+        downloadService: DownloadService.forTesting(dio),
+      );
+      addTearDown(notifier.dispose);
+      await tester.pumpWidget(
+        TranslationProvider(
+          child: MaterialApp(
+            navigatorKey: navigatorKey,
+            home: const Scaffold(body: SizedBox.shrink()),
+          ),
+        ),
+      );
+      // 模拟正式版禁用 debugPrint，验证落盘不依赖控制台输出。
+      final originalDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {};
+      try {
+        await tester.runAsync(
+          () => notifier.startDownload(
+            url: 'https://user:password@linux.do/uploads/example.pdf?token=secret#fragment',
+            suggestedFilename: scenario == 'head' ? null : '附件.pdf',
+          ),
+        );
+      } finally {
+        debugPrint = originalDebugPrint;
+      }
+      final entries = await tester.runAsync(() async {
+        await LogWriter.instance.flushNow();
+        final content = await LogWriter.readAllContent();
+        expect(content, isNot(contains('secret')));
+        expect(content, isNot(contains('password')));
+        expect(content, isNot(contains('fragment')));
+        return content
+            .split('\n')
+            .where((line) => line.isNotEmpty)
+            .map((line) => jsonDecode(line) as Map<String, dynamic>)
+            .toList();
+      });
+      final events = entries!
+          .where((entry) => entry['tag'] == 'Download')
+          .toList();
+      expect(events.map((entry) => entry['downloadId']).toSet(), hasLength(1));
+      final id = events.first['downloadId'];
+      final requests = entries.where((entry) => entry['type'] == 'request');
+      expect(requests, isNotEmpty);
+      expect(requests.every((entry) => entry['downloadId'] == id), isTrue);
+      final success = scenario == 'backup' || scenario == 'head';
+      expect(
+        notifier.state.single.status.name,
+        success ? 'completed' : 'failed',
+      );
+      if (success) {
+        expect(events.last['stage'], 'completed');
+        expect(
+          File(notifier.state.single.savePath).readAsStringSync(),
+          'attachment content',
+        );
+        final warning = events.singleWhere(
+          (entry) => entry['level'] == 'warning',
+        );
+        expect(
+          warning['stage'],
+          scenario == 'backup' ? 'excludeBackup' : 'fetchHeaders',
+        );
+      } else {
+        final failure = events.singleWhere(
+          (entry) => entry['level'] == 'error',
+        );
+        expect(
+          failure['stage'],
+          scenario == 'commit' ? 'commitFile' : 'transfer',
+        );
+        expect(failure['stackTrace'], isNotEmpty);
+        expect(failure['savePath'], isNotEmpty);
+        expect(failure['temporaryPath'], isNotEmpty);
+        if (scenario == 'http') {
+          expect(failure['statusCode'], 403);
+        }
+        if (scenario == 'connection') {
+          expect(failure['dioType'], 'connectionError');
+        }
+        if (scenario == 'write') {
+          expect(failure['causeType'], 'FileSystemException');
+          expect(failure['osErrorCode'], 28);
+        }
+        if (scenario == 'commit') {
+          expect(failure['osErrorCode'], isNotNull);
+        }
+      }
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 7));
       await tester.pumpAndSettle();
     });
   }

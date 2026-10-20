@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'download_diagnostics.dart';
 import 'network/discourse_dio.dart';
 import 'public_file_channel.dart';
 
@@ -17,6 +18,11 @@ class DownloadService {
   DownloadService._();
   static final DownloadService instance = DownloadService._();
   factory DownloadService() => instance;
+
+  @visibleForTesting
+  DownloadService.forTesting(Dio dio) {
+    _dio = dio;
+  }
 
   @visibleForTesting
   static bool? debugIsIOSOverride;
@@ -49,33 +55,59 @@ class DownloadService {
     required DownloadReservation reservation,
     required void Function(int received, int total) onProgress,
     CancelToken? cancelToken,
+    DownloadDiagnostics? diagnostics,
   }) async {
     try {
+      diagnostics?.enter('transfer');
       await _dio.download(
         url,
         reservation.temporaryPath,
         onReceiveProgress: onProgress,
         cancelToken: cancelToken,
-        options: Options(extra: {'skipCsrf': true, 'skipAuthCheck': true}),
+        options: Options(
+          extra: {
+            'skipCsrf': true,
+            'skipAuthCheck': true,
+            'requestTag': 'attachment-download',
+            if (diagnostics != null)
+              '_networkLogFields': {'downloadId': diagnostics.id},
+          },
+        ),
       );
+      diagnostics?.enter('commitFile');
       await reservation.commit();
     } catch (error, stackTrace) {
       try {
         await reservation.release();
-      } catch (cleanupError) {
-        debugPrint('[DownloadService] 清理失败: $cleanupError');
+      } catch (cleanupError, cleanupStackTrace) {
+        // 主异常交给下载调用方记录，清理异常不能覆盖它。
+        (diagnostics ?? DownloadDiagnostics(url)).failure(
+          cleanupError,
+          cleanupStackTrace,
+          fatal: false,
+          atStage: 'cleanup',
+        );
       }
       Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
   /// 通过 HEAD 请求从 Content-Disposition 获取原始文件名
-  Future<String?> fetchFileNameFromHeader(String url) async {
+  Future<String?> fetchFileNameFromHeader(
+    String url, {
+    DownloadDiagnostics? diagnostics,
+  }) async {
     try {
       final response = await _dio.head<void>(
         url,
         options: Options(
-          extra: {'skipCsrf': true, 'skipAuthCheck': true},
+          extra: {
+            'skipCsrf': true,
+            'skipAuthCheck': true,
+            'requestTag': 'attachment-download-head',
+            if (diagnostics != null)
+              '_networkLogFields': {'downloadId': diagnostics.id},
+          },
           followRedirects: true,
         ),
       );
@@ -83,8 +115,13 @@ class DownloadService {
       if (disposition != null) {
         return parseContentDisposition(disposition);
       }
-    } catch (e) {
-      debugPrint('[DownloadService] HEAD 请求获取文件名失败: $e');
+    } catch (e, stackTrace) {
+      (diagnostics ?? DownloadDiagnostics(url)).failure(
+        e,
+        stackTrace,
+        fatal: false,
+        atStage: 'fetchHeaders',
+      );
     }
     return null;
   }
@@ -170,38 +207,55 @@ class DownloadService {
   /// - 桌面 → `~/Downloads`（可见）；
   /// - Android → 应用外部下载目录 `Android/data/<pkg>/files/Download`
   ///   （11+ 的系统文件管理器不允许浏览，只能在应用内取用）；
-  /// - iOS → 应用 `Documents/Downloads`，排除 iCloud 备份。
+  /// - iOS → 应用 `Documents/Downloads`，尝试排除 iCloud 备份，失败记录警告。
   ///
   /// 要落到用户能找到的位置，走 `ShareUtils.saveFile` / `saveFileAs`。
   /// path_provider 在部分平台会对下载目录抛 [UnsupportedError]，统一回退到
   /// 应用文档目录，避免调用方各自兜底。
-  static Future<Directory> resolveDownloadDirectory() async {
+  static Future<Directory> resolveDownloadDirectory({
+    DownloadDiagnostics? diagnostics,
+  }) async {
+    diagnostics ??= DownloadDiagnostics('');
     // NSDownloadsDirectory 在部分 iOS 真机上返回容器根目录下不可创建的路径。
     // iOS 明确使用应用文档目录，不通过系统下载目录试探。
     if (debugIsIOSOverride ?? Platform.isIOS) {
-      final directory = await _createAppDownloadDirectory();
-      await PublicFileChannel.excludeDownloadsFromBackup();
+      final directory = await _createAppDownloadDirectory(diagnostics);
+      diagnostics.enter('excludeBackup');
+      try {
+        await PublicFileChannel.excludeDownloadsFromBackup();
+      } catch (error, stackTrace) {
+        // 备份属性不决定目录是否可写；记录问题，下次下载会重新尝试设置。
+        diagnostics.failure(error, stackTrace, fatal: false);
+      }
       return directory;
     }
 
     Directory? downloadsDir;
+    diagnostics.enter('resolveDirectory');
     try {
       downloadsDir = await getDownloadsDirectory();
-    } catch (e) {
-      debugPrint('[DownloadService] 系统下载目录不可用: $e');
+    } catch (e, stackTrace) {
+      diagnostics.failure(e, stackTrace, fatal: false);
     }
     if (downloadsDir != null) {
+      diagnostics.directory = downloadsDir.path;
+      diagnostics.enter('createDirectory');
       if (!await downloadsDir.exists()) {
         await downloadsDir.create(recursive: true);
       }
       return downloadsDir;
     }
-    return _createAppDownloadDirectory();
+    return _createAppDownloadDirectory(diagnostics);
   }
 
-  static Future<Directory> _createAppDownloadDirectory() async {
+  static Future<Directory> _createAppDownloadDirectory(
+    DownloadDiagnostics diagnostics,
+  ) async {
+    diagnostics.enter('resolveDirectory');
     final appDir = await getApplicationDocumentsDirectory();
     final directory = Directory(p.join(appDir.path, 'Downloads'));
+    diagnostics.directory = directory.path;
+    diagnostics.enter('createDirectory');
     if (!await directory.exists()) {
       await directory.create(recursive: true);
     }

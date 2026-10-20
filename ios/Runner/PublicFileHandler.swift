@@ -25,8 +25,12 @@ final class PublicFileHandler: NSObject {
 
   private weak var viewController: UIViewController?
 
-  func register(messenger: FlutterBinaryMessenger, viewController: UIViewController) {
+  func attach(viewController: UIViewController) {
     self.viewController = viewController
+  }
+
+  // 文件属性操作不依赖界面，随引擎注册；导出面板稍后绑定场景控制器。
+  func register(messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: Self.channelName, binaryMessenger: messenger)
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else {
@@ -47,7 +51,18 @@ final class PublicFileHandler: NSObject {
           try downloads.setResourceValues(values)
           result(nil)
         } catch {
-          result(FlutterError(code: "BACKUP_EXCLUSION_FAILED", message: error.localizedDescription, details: nil))
+          let nsError = error as NSError
+          let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError
+          result(FlutterError(
+            code: "BACKUP_EXCLUSION_FAILED",
+            message: nsError.localizedDescription,
+            details: [
+              "domain": nsError.domain,
+              "code": nsError.code,
+              "underlyingDomain": underlying?.domain as Any? ?? NSNull(),
+              "underlyingCode": underlying?.code as Any? ?? NSNull()
+            ]
+          ))
         }
       case "saveToDownloads":
         // iOS 没有对外可见的落点，交给 Dart 侧走 saveAs
