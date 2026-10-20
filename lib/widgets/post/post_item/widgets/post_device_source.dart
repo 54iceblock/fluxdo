@@ -38,12 +38,13 @@ class PostDeviceSource extends StatelessWidget {
           style: TextButton.styleFrom(
             foregroundColor: theme.colorScheme.onSurfaceVariant,
             textStyle: theme.textTheme.bodySmall?.copyWith(
-              fontSize: 12,
+              fontSize: 11,
               height: 1.4,
             ),
             alignment: AlignmentDirectional.centerStart,
-            padding: EdgeInsets.zero,
-            minimumSize: const Size(44, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            minimumSize: const Size(44, 32),
+            visualDensity: VisualDensity.standard,
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),

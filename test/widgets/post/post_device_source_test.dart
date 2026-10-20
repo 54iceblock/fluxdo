@@ -87,8 +87,15 @@ void main() {
         );
         expect(
           tester.getSize(find.byType(TextButton)).height,
-          greaterThanOrEqualTo(44),
+          greaterThanOrEqualTo(32),
         );
+        final buttonRect = tester.getRect(find.byType(TextButton));
+        final textRect = tester.getRect(find.text('来自 $device'));
+        expect(textRect.left - buttonRect.left, greaterThanOrEqualTo(8));
+        expect(buttonRect.right - textRect.right, greaterThanOrEqualTo(8));
+        if (scale == 1) {
+          expect(buttonRect.height, lessThan(44));
+        }
         expect(find.bySemanticsLabel('来自 $device'), findsOneWidget);
         expect(tester.takeException(), isNull);
       }
