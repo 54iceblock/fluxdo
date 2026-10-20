@@ -4587,7 +4587,6 @@ class _RichToolbarState extends State<_RichToolbar> {
         _btn(
           FontAwesomeIcons.image,
           richEditorTools.firstWhere((tool) => tool.id == 'image').label,
-          toolId: 'image',
           anchored: anchored,
           onTap: widget.onPickImage,
         ),
@@ -4596,7 +4595,6 @@ class _RichToolbarState extends State<_RichToolbar> {
           _btn(
             t.icon,
             _tip(t.label, t.id),
-            toolId: t.id,
             active: t.isActive?.call(snap) ?? false,
             anchored: anchored,
             onTap: () => t.run(ctx),
@@ -4624,15 +4622,10 @@ class _RichToolbarState extends State<_RichToolbar> {
     );
     final button = IconButton(
       tooltip: action.label,
-      icon: anchored
-          ? widget.toolsAnchor?.icon('insert:${action.searchText}', icon) ??
-                icon
-          : icon,
+      icon: icon,
       onPressed: anchored ? action.run : () => _desktopAction(action.run),
     );
-    return anchored
-        ? widget.toolsAnchor?.compactControl(button) ?? button
-        : button;
+    return button;
   }
 
   /// 标准工具按钮(MarkdownToolbar._ToolbarButton 同参:FaIcon 16 +
@@ -4642,23 +4635,17 @@ class _RichToolbarState extends State<_RichToolbar> {
     String tooltip, {
     bool active = false,
     bool anchored = true,
-    String? toolId,
     required VoidCallback onTap,
   }) {
     final button = IconButton(
       visualDensity: VisualDensity.standard,
       isSelected: active,
-      icon: toolId == null || !anchored
-          ? FaIcon(icon, size: 16)
-          : widget.toolsAnchor?.icon(toolId, FaIcon(icon, size: 16)) ??
-                FaIcon(icon, size: 16),
+      icon: FaIcon(icon, size: 16),
       onPressed: anchored ? onTap : () => _desktopAction(onTap),
       tooltip: tooltip,
       style: composerToolButtonStyle(context, active: active),
     );
-    return anchored
-        ? widget.toolsAnchor?.compactControl(button) ?? button
-        : button;
+    return button;
   }
 }
 
