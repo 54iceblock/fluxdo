@@ -3835,16 +3835,6 @@ class RichComposerEditorState extends State<RichComposerEditor> {
                         controller: _scrollController,
                         slivers: [
                           SliverToBoxAdapter(child: _recoveryBanner()),
-                          SliverToBoxAdapter(
-                            // 撤销可能暂时移走占位；只兜底展示没有正文卡片的任务。
-                            child: ListenableBuilder(
-                              listenable: editor,
-                              builder: (context, _) => UploadTaskPanel(
-                                controller: _uploads,
-                                taskFilter: _needsUploadPanel,
-                              ),
-                            ),
-                          ),
                           if (widget.header != null)
                             SliverToBoxAdapter(child: widget.header),
                           if (_isDesktop && widget.metaBar != null)
@@ -3853,6 +3843,17 @@ class RichComposerEditorState extends State<RichComposerEditor> {
                                 child: widget.metaBar!,
                               ),
                             ),
+                          SliverToBoxAdapter(
+                            // 撤销可能暂时移走占位；只兜底展示没有正文卡片的任务。
+                            // 放在头部之后，出现时也不能把标题推离顶部安全区域。
+                            child: ListenableBuilder(
+                              listenable: editor,
+                              builder: (context, _) => UploadTaskPanel(
+                                controller: _uploads,
+                                taskFilter: _needsUploadPanel,
+                              ),
+                            ),
+                          ),
                           SliverLayoutBuilder(
                             builder: (context, sliver) => SliverToBoxAdapter(
                               // Listener:表情面板开着时点编辑区任意处 → 切回键盘态
