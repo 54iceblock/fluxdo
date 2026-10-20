@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'network/discourse_dio.dart';
+import 'public_file_channel.dart';
 
 /// 文件下载服务（单例）
 ///
@@ -16,6 +17,9 @@ class DownloadService {
   DownloadService._();
   static final DownloadService instance = DownloadService._();
   factory DownloadService() => instance;
+
+  @visibleForTesting
+  static bool? debugIsIOSOverride;
 
   static final RegExp _invalidFileNameCharacters = RegExp(r'[<>:"/\\|?*]');
   static final RegExp _windowsReservedFileName = RegExp(
@@ -166,12 +170,20 @@ class DownloadService {
   /// - 桌面 → `~/Downloads`（可见）；
   /// - Android → 应用外部下载目录 `Android/data/<pkg>/files/Download`
   ///   （11+ 的系统文件管理器不允许浏览，只能在应用内取用）；
-  /// - iOS → 沙盒 `Library/Downloads`（对外完全不可见）。
+  /// - iOS → 应用 `Documents/Downloads`，排除 iCloud 备份。
   ///
   /// 要落到用户能找到的位置，走 `ShareUtils.saveFile` / `saveFileAs`。
   /// path_provider 在部分平台会对下载目录抛 [UnsupportedError]，统一回退到
   /// 应用文档目录，避免调用方各自兜底。
   static Future<Directory> resolveDownloadDirectory() async {
+    // NSDownloadsDirectory 在部分 iOS 真机上返回容器根目录下不可创建的路径。
+    // iOS 明确使用应用文档目录，不通过系统下载目录试探。
+    if (debugIsIOSOverride ?? Platform.isIOS) {
+      final directory = await _createAppDownloadDirectory();
+      await PublicFileChannel.excludeDownloadsFromBackup();
+      return directory;
+    }
+
     Directory? downloadsDir;
     try {
       downloadsDir = await getDownloadsDirectory();
@@ -184,12 +196,16 @@ class DownloadService {
       }
       return downloadsDir;
     }
+    return _createAppDownloadDirectory();
+  }
+
+  static Future<Directory> _createAppDownloadDirectory() async {
     final appDir = await getApplicationDocumentsDirectory();
-    final fallbackDir = Directory(p.join(appDir.path, 'Downloads'));
-    if (!await fallbackDir.exists()) {
-      await fallbackDir.create(recursive: true);
+    final directory = Directory(p.join(appDir.path, 'Downloads'));
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
     }
-    return fallbackDir;
+    return directory;
   }
 
   /// 原子预留一个不重名的最终路径，并在同目录创建不可预测的临时文件。

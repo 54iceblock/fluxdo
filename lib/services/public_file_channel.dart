@@ -36,6 +36,11 @@ abstract final class PublicFileChannel {
   /// 对外可见的目录。用它来决定要不要给「静默保存到下载目录」这个入口。
   static bool get hasPublicDownloads => isSupported;
 
+  /// iOS 应用内的 Downloads 目录可重新下载，不占用用户的 iCloud 备份。
+  /// 调用方须先创建 Documents/Downloads；失败时抛出平台异常。
+  static Future<void> excludeDownloadsFromBackup() =>
+      _channel.invokeMethod<void>('excludeDownloadsFromBackup');
+
   /// 静默写入公共「下载」目录（Android 10+ 走 MediaStore，零权限）。
   ///
   /// 返回 null 表示这条路走不通（Android 9 及以下没有 MediaStore.Downloads

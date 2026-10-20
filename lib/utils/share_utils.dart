@@ -173,10 +173,9 @@ class ShareUtils {
   /// - Android 10+：MediaStore 静默写入公共「下载」目录（零权限、卸载不删），
   ///   [ShareOutcome.finalPath] 是 content uri；Android 9 及以下没有该集合，
   ///   回退到应用私有下载目录（系统文件管理器里不可达，只能在应用内取用）；
-  /// - iOS：沙盒里没有对外可见的落点（`getDownloadsDirectory` 返回的是
-  ///   `Library/Downloads`，而 UIFileSharingEnabled 只暴露 Documents，那里
-  ///   躺着数据库/cookie/日志，不能整目录暴露），因此转交 [saveFileAs] 走
-  ///   系统导出面板让用户挑位置。
+  /// - iOS：应用下载文件位于 Documents/Downloads；Documents 还存放数据库、
+  ///   Cookie 和日志，不整目录暴露给「文件」App，因此转交 [saveFileAs]
+  ///   走系统导出面板让用户挑位置。
   ///
   /// 成功提示交给调用方（各入口的成功文案不同），失败提示在此统一给出。
   static Future<ShareOutcome> saveFile(XFile file) async {

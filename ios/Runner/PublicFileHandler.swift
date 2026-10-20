@@ -35,6 +35,20 @@ final class PublicFileHandler: NSObject {
       }
       let args = call.arguments as? [String: Any] ?? [:]
       switch call.method {
+      case "excludeDownloadsFromBackup":
+        do {
+          let documents = try FileManager.default.url(
+            for: .documentDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: false
+          )
+          var downloads = documents.appendingPathComponent("Downloads", isDirectory: true)
+          var values = URLResourceValues()
+          values.isExcludedFromBackup = true
+          try downloads.setResourceValues(values)
+          result(nil)
+        } catch {
+          result(FlutterError(code: "BACKUP_EXCLUSION_FAILED", message: error.localizedDescription, details: nil))
+        }
       case "saveToDownloads":
         // iOS 没有对外可见的落点，交给 Dart 侧走 saveAs
         result(nil)

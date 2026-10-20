@@ -59,11 +59,19 @@ class DownloadNotifier extends StateNotifier<List<DownloadItem>> {
     );
 
     // 获取下载目录，处理重名
-    final dir = await _getDownloadDir();
-    var reservation = DownloadService.reserveAvailableDownload(
-      directory: dir,
-      fileName: initialFileName,
-    );
+    final Directory dir;
+    DownloadReservation reservation;
+    try {
+      dir = await _getDownloadDir();
+      reservation = DownloadService.reserveAvailableDownload(
+        directory: dir,
+        fileName: initialFileName,
+      );
+    } catch (e) {
+      debugPrint('[DownloadProvider] 下载目录或文件准备失败: $e');
+      ToastService.showError(S.current.myBrowser_downloadFailed);
+      return;
+    }
     var savePath = reservation.savePath;
     // 实际文件名可能带编号（如 "file (1).pdf"）
     var actualFileName = p.basename(savePath);
