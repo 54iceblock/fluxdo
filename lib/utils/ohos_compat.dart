@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'platform_utils.dart';
 
@@ -50,8 +50,9 @@ class OhosCompat {
       Platform.isAndroid || Platform.isIOS || Platform.isMacOS || isOhos;
 
   /// 是否支持系统相册保存（gal）
-  /// OHOS：走系统 Picker/SaveButton，暂用文件导出兜底。
-  static bool get supportsSaveToGallery => !isOhos;
+  /// OHOS：saver_gallery 5.x 自带 ohos 实现（photoAccessHelper 保存确认框），
+  /// 代码见 image_save_utils.dart，失败时回落到文件导出。
+  static bool get supportsSaveToGallery => true;
 
   /// 是否支持本地通知插件（flutter_local_notifications）
   /// OHOS：官方 fork 提供实现，若未注册则初始化会被 try/catch 兜住。
