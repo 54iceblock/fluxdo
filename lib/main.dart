@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:catcher_2/catcher_2.dart';
@@ -161,6 +161,58 @@ void _logNativeCodec(String result, String? version, {String? error}) {
       if (version != null) 'version': version,
       'platform': PlatformUtils.isOhos ? 'ohos' : 'other',
       if (error != null) 'error': error,
+    });
+  } catch (_) {
+    // 日志失败不影响启动
+  }
+}
+
+/// AVIF 能力探测：把本地样本交给 HarmonyOS ImageKit 试解，结果写日志。
+///
+/// 系统 ImageKit 若能解 AVIF，就可以在 OHOS 上补一条 AVIF 解码路径
+/// （目前 flutter_avif 没有 OHOS 平台实现）。
+Future<void> _probeOhosAvifSupport() async {
+  const channel = MethodChannel('com.fluxdo/ohos');
+  try {
+    // 样本来自打包资源（assets/probe/avif-probe.avif），避免依赖外部文件权限。
+    final data = await rootBundle.load('assets/probe/avif-probe.avif');
+    final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    final info = await channel.invokeMethod<Map<Object?, Object?>>(
+      'probeAvif',
+      <String, Object>{'bytes': bytes},
+    );
+    _logAvifProbe('ok', info?.toString());
+    // 再走一遍真实解码路径，确认能拿到 RGBA 像素。
+    final decoded = await channel.invokeMethod<Map<Object?, Object?>>(
+      'decodeAvif',
+      <String, Object>{'bytes': bytes, 'maxDim': 256},
+    );
+    if (decoded == null) {
+      _logAvifProbe('decode-null', null);
+    } else {
+      final px = decoded['bytes'];
+      final len = px is Uint8List
+          ? px.length
+          : (px is List ? px.length : -1);
+      _logAvifProbe(
+        'decode-ok',
+        'w=${decoded['width']} h=${decoded['height']} rgba=$len',
+      );
+    }
+  } catch (e) {
+    _logAvifProbe('error', '$e');
+  }
+}
+
+void _logAvifProbe(String result, String? detail) {
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': result == 'ok' ? 'info' : 'warning',
+      'type': 'image',
+      'event': 'avif_probe',
+      'result': result,
+      if (detail != null) 'detail': detail,
+      'platform': 'ohos',
     });
   } catch (_) {
     // 日志失败不影响启动
@@ -453,6 +505,12 @@ Future<void> main() async {
     } catch (e) {
       _logNativeCodec('error', null, error: '$e');
     }
+  }
+
+  // AVIF 能力探测（HarmonyOS ImageKit）：确认系统能否解码 AVIF，
+  // 结果只写日志，不阻塞启动。
+  if (PlatformUtils.isOhos) {
+    unawaited(_probeOhosAvifSupport());
   }
 
   // Windows 固定系统代理必须先于本地 DoH/WebView 网关读取，网关才能按

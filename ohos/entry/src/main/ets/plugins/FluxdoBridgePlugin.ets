@@ -34,6 +34,8 @@ import {
 } from '@ohos/flutter_ohos';
 import i18n from '@ohos.i18n';
 import hilog from '@ohos.hilog';
+import image from '@ohos.multimedia.image';
+import { BusinessError } from '@ohos.base';
 
 const DOMAIN: number = 0x0F1D;
 const TAG: string = 'FluxdoBridge';
@@ -116,6 +118,38 @@ export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHand
         result.success(i18n.System.getSystemLocale());
         return;
       }
+      if (call.method === 'probeAvif') {
+        // AVIF 能力探测：把字节交给系统 ImageKit，看能否解出宽高与 MIME。
+        const raw = call.argument('bytes') as Uint8Array;
+        if (raw === undefined || raw === null) {
+          result.error('AVIF_PROBE_BAD_ARGS', 'bytes is required', null);
+          return;
+        }
+        this.probeAvif(raw).then((info) => {
+          result.success(info);
+        }).catch((e: Error) => {
+          hilog.warn(DOMAIN, TAG, 'probeAvif failed: %{public}s', e.message);
+          result.error('AVIF_PROBE_FAILED', e.message, null);
+        });
+        return;
+      }
+      if (call.method === 'decodeAvif') {
+        // AVIF 解码：系统 ImageKit → RGBA8888 原始像素，交给 Dart 侧构造 ImageDescriptor.raw。
+        const avifBytes = call.argument('bytes') as Uint8Array;
+        const maxDim = call.argument('maxDim') as number;
+        if (avifBytes === undefined || avifBytes === null) {
+          result.error('AVIF_DECODE_BAD_ARGS', 'bytes is required', null);
+          return;
+        }
+        this.decodeAvif(avifBytes, maxDim).then((info) => {
+          result.success(info);
+        }).catch((e: BusinessError) => {
+          const detail: string = `code=${e.code} msg=${e.message}`;
+          hilog.warn(DOMAIN, TAG, 'decodeAvif failed: %{public}s', detail);
+          result.error('AVIF_DECODE_FAILED', detail, null);
+        });
+        return;
+      }
       result.notImplemented();
     } catch (e) {
       const err = e as Error;
@@ -128,6 +162,145 @@ export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHand
       );
       result.error('FLUXDO_OHOS_BRIDGE_ERROR', err.message, null);
     }
+  }
+
+  /**
+   * 用系统 ImageKit 解析图片头信息（用于 AVIF 能力探测）。
+   *
+   * 返回 { ok, mime, width, height }；系统不支持该格式时抛异常，由调用方捕获。
+   */
+  private async probeAvif(bytes: Uint8Array): Promise<Record<string, Object | null>> {
+    const source = image.createImageSource(bytes.buffer as ArrayBuffer);
+    try {
+      const info = await source.getImageInfo();
+      const result: Record<string, Object | null> = {
+        'ok': true,
+        'mime': info.mimeType ?? '',
+        'width': info.size.width,
+        'height': info.size.height,
+      };
+      return result;
+    } finally {
+      try {
+        await source.release();
+      } catch (e) {
+        // release 失败不影响探测结果
+      }
+    }
+  }
+
+  /**
+   * 用系统 ImageKit 解码 AVIF 为 RGBA8888 原始像素。
+   *
+   * 返回 { width, height, bytes }（bytes 为 ArrayBuffer，长度 = w*h*4）。
+   * 动画 AVIF 只返回首帧（与平台 codec 的降级行为一致）。
+   */
+  private async decodeAvif(
+    bytes: Uint8Array,
+    maxDim?: number
+  ): Promise<Record<string, Object | null>> {
+    const source = image.createImageSource(bytes.buffer as ArrayBuffer);
+    let pixelMap: image.PixelMap | undefined = undefined;
+    let step: string = 'createImageSource';
+    try {
+      step = 'getImageInfo';
+      const info = await source.getImageInfo();
+      let targetW: number = info.size.width;
+      let targetH: number = info.size.height;
+      const options: image.DecodingOptions = {};
+      if (maxDim !== undefined && maxDim > 0 && (targetW > maxDim || targetH > maxDim)) {
+        if (targetW >= targetH) {
+          targetH = Math.max(1, Math.round((targetH * maxDim) / targetW));
+          targetW = maxDim;
+        } else {
+          targetW = Math.max(1, Math.round((targetW * maxDim) / targetH));
+          targetH = maxDim;
+        }
+        options.desiredSize = { width: targetW, height: targetH };
+      }
+      step = 'createPixelMap';
+      pixelMap = await this.createPixelMapWithFallback(source, options);
+      step = 'getPixelMapInfo';
+      const pixelInfo = await pixelMap.getImageInfo();
+      const outW: number = pixelInfo.size.width;
+      const outH: number = pixelInfo.size.height;
+      // 按像素总字节数分配（行跨距可能 > width*4，必须用系统给的真实大小）。
+      step = 'getPixelBytesNumber';
+      const byteCount: number = pixelMap.getPixelBytesNumber();
+      const rowBytes: number = pixelMap.getBytesNumberPerRow();
+      step = 'readPixelsToBuffer';
+      const out: ArrayBuffer = new ArrayBuffer(byteCount);
+      await pixelMap.readPixelsToBuffer(out);
+      step = 'done';
+      console.info(
+        `FluxdoBridge decodeAvif ok w=${outW} h=${outH} rowBytes=${rowBytes} bytes=${byteCount}`
+      );
+      const result: Record<string, Object | null> = {
+        'width': outW,
+        'height': outH,
+        'rowBytes': rowBytes,
+        'bytes': out,
+      };
+      return result;
+    } catch (e) {
+      const err = e as Error;
+      const msg: string = err !== undefined && err.message !== undefined ? err.message : `${e}`;
+      console.error(`FluxdoBridge decodeAvif failed at ${step}: ${msg}`);
+      throw new Error(`step=${step}: ${msg}`);
+    } finally {
+      if (pixelMap !== undefined) {
+        try {
+          await pixelMap.release();
+        } catch (e) {
+          // 释放失败忽略
+        }
+      }
+      try {
+        await source.release();
+      } catch (e) {
+        // 释放失败忽略
+      }
+    }
+  }
+
+  /**
+   * 多种 ImageKit 解码姿势依次尝试，兼容不同 ROM 对 AVIF 的支持差异：
+   *  1) createPixelMap(带 desiredPixelFormat=RGBA_8888)
+   *  2) createPixelMap(默认)
+   *  3) createPixelMapList() 取首帧
+   */
+  private async createPixelMapWithFallback(
+    source: image.ImageSource,
+    options: image.DecodingOptions
+  ): Promise<image.PixelMap> {
+    const attempts: Array<string> = ['rgba', 'default', 'list'];
+    let lastError: string = '';
+    for (const attempt of attempts) {
+      try {
+        if (attempt === 'rgba') {
+          const rgbaOptions: image.DecodingOptions = {
+            desiredPixelFormat: image.PixelMapFormat.RGBA_8888,
+          };
+          if (options.desiredSize !== undefined) {
+            rgbaOptions.desiredSize = options.desiredSize;
+          }
+          return await source.createPixelMap(rgbaOptions);
+        }
+        if (attempt === 'default') {
+          return await source.createPixelMap(options);
+        }
+        const list: Array<image.PixelMap> = await source.createPixelMapList(options);
+        if (list.length > 0) {
+          return list[0];
+        }
+        lastError = 'createPixelMapList 返回空';
+      } catch (e) {
+        const err = e as Error;
+        lastError = `${attempt}: ${err !== undefined && err.message !== undefined ? err.message : `${e}`}`;
+        console.warn(`FluxdoBridge createPixelMap attempt ${attempt} failed: ${lastError}`);
+      }
+    }
+    throw new Error(`all decode attempts failed (${lastError})`);
   }
 
   /**

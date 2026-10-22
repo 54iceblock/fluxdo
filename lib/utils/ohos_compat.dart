@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'platform_utils.dart';
 
@@ -34,8 +34,14 @@ class OhosCompat {
   /// 并打进 HAP 的 libs/`<abi>`/，加载分支见 vendored 包的 bindings。
   static bool get supportsNativeAnimatedImage => true;
 
-  /// 是否支持 flutter_avif（libavif/dav1d）
-  /// OHOS：暂无原生库，AVIF 走平台 ImageKit 或占位。
+  /// 是否支持 AVIF 解码
+  ///
+  /// OHOS：flutter_avif 没有平台实现。曾尝试用系统 ImageKit（ArkTS 桥，
+  /// 见 `FluxdoBridgePlugin.probeAvif/decodeAvif`）：
+  /// 实测本机（API 26 模拟器）能解析 AVIF 容器头（mime=image/avif、宽高正确），
+  /// 但 `createPixelMap` 三个变体（RGBA/默认/createPixelMapList）全部报
+  /// "Decode image header failed"，即系统解码器不含 AVIF 像素解码。
+  /// 因此仍关闭；后续走自编 libavif + dav1d 的方案。
   static bool get supportsAvif => !isOhos;
 
   /// 是否支持 super_clipboard（富文本剪贴板）
