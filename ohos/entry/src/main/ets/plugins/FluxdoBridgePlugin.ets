@@ -39,6 +39,7 @@ import { BusinessError } from '@ohos.base';
 import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
 import wantAgent from '@ohos.app.ability.wantAgent';
 import common from '@ohos.app.ability.common';
+import pasteboard from '@ohos.pasteboard';
 
 const DOMAIN: number = 0x0F1D;
 const TAG: string = 'FluxdoBridge';
@@ -177,6 +178,33 @@ export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHand
           const detail: string = `code=${e.code} msg=${e.message}`;
           console.error(`FluxdoBridge stopContinuousTask failed: ${detail}`);
           result.error('CONTINUOUS_TASK_STOP_FAILED', detail, null);
+        });
+        return;
+      }
+      if (call.method === 'writeImageToPasteboard') {
+        // 富文本剪贴板：PNG 字节 → PixelMap → 系统剪贴板（图片）
+        const pngBytes = call.argument('bytes') as Uint8Array;
+        if (pngBytes === undefined || pngBytes === null) {
+          result.error('CLIPBOARD_BAD_ARGS', 'bytes is required', null);
+          return;
+        }
+        this.writeImageToPasteboard(pngBytes).then(() => {
+          result.success(true);
+        }).catch((e: BusinessError) => {
+          const detail: string = `code=${e.code} msg=${e.message}`;
+          console.error(`FluxdoBridge writeImageToPasteboard failed: ${detail}`);
+          result.error('CLIPBOARD_WRITE_FAILED', detail, null);
+        });
+        return;
+      }
+      if (call.method === 'readClipboardHtml') {
+        // 富文本粘贴：读系统剪贴板里的 HTML 片段（无则返回 null）
+        this.readClipboardHtml().then((html) => {
+          result.success(html);
+        }).catch((e: BusinessError) => {
+          const detail: string = `code=${e.code} msg=${e.message}`;
+          console.error(`FluxdoBridge readClipboardHtml failed: ${detail}`);
+          result.error('CLIPBOARD_READ_FAILED', detail, null);
         });
         return;
       }
@@ -381,6 +409,52 @@ export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHand
     await backgroundTaskManager.stopBackgroundRunning(ctx);
     this.continuousTaskRunning = false;
     console.info('FluxdoBridge continuous task stopped');
+  }
+
+  /**
+   * 把 PNG 字节写入系统剪贴板（图片富内容）。
+   *
+   * HarmonyOS 剪贴板图片需要用 PixelMap；先用 ImageKit 解码 PNG，再 createData。
+   */
+  private async writeImageToPasteboard(pngBytes: Uint8Array): Promise<void> {
+    const source = image.createImageSource(pngBytes.buffer as ArrayBuffer);
+    let pixelMap: image.PixelMap | undefined = undefined;
+    try {
+      pixelMap = await source.createPixelMap();
+      const pasteData = pasteboard.createData(pasteboard.MIMETYPE_PIXELMAP, pixelMap);
+      const board = pasteboard.getSystemPasteboard();
+      await board.setData(pasteData);
+      console.info('FluxdoBridge clipboard image written');
+    } finally {
+      if (pixelMap !== undefined) {
+        try {
+          await pixelMap.release();
+        } catch (e) {
+          // 忽略释放失败
+        }
+      }
+      try {
+        await source.release();
+      } catch (e) {
+        // 忽略释放失败
+      }
+    }
+  }
+
+  /** 读取系统剪贴板中的 HTML 片段；不存在则返回 null。 */
+  private async readClipboardHtml(): Promise<string | null> {
+    const board = pasteboard.getSystemPasteboard();
+    const hasData = await board.hasData();
+    if (!hasData) {
+      return null;
+    }
+    const data = await board.getData();
+    // PasteData 含 MIMETYPE_TEXT_HTML 时可用 getPrimaryHtml 取到 HTML 片段
+    const html: string = data.getPrimaryHtml();
+    if (html === undefined || html === null || html.length === 0) {
+      return null;
+    }
+    return html;
   }
 
   /**

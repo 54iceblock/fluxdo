@@ -2960,8 +2960,15 @@ class RichComposerEditorState extends State<RichComposerEditor> {
   }
 
   Future<bool> _importRichPaste(EditorSelection? selection) async {
-    // OHOS：super_clipboard 没有原生实现（取 instance 就会抛符号查找异常），
-    // 返回 false 交给 FluxdoEditor 内部的纯文本粘贴降级路径。
+    // HarmonyOS：super_clipboard 无原生实现（取 instance 会抛符号查找异常），
+    // 改走自研 ArkTS 桥读取剪贴板 HTML，再按同一套规则转 Markdown 插入。
+    if (ClipboardUtils.supportsOhosRichClipboard) {
+      final html = await ClipboardUtils.readHtml();
+      if (html == null || html.trim().isEmpty) return false;
+      final md = clipboardHtmlToMarkdown(html);
+      if (md == null) return false;
+      return _insertSemanticMarkdown(md, selection);
+    }
     if (!ClipboardUtils.supportsRichClipboard) return false;
     final clipboard = SystemClipboard.instance;
     if (clipboard == null) return false; // 平台无系统剪贴板访问

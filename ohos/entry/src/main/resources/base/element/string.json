@@ -1,4 +1,4 @@
-{
+﻿{
   "string": [
     {
       "name": "module_desc",
@@ -20,5 +20,9 @@
       "name": "reason_microphone",
       "value": "用于录制语音消息"
     }
-  ]
+ ,
+    {
+      "name": "pasteboard_reason",
+      "value": "用于粘贴剪贴板中的富文本内容"
+    } ]
 }

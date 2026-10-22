@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+﻿import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:catcher_2/catcher_2.dart';
@@ -313,6 +314,45 @@ void _logBackgroundProbe(String state) {
   }
 }
 
+/// 富文本剪贴板能力探测（仅 debug）：写一张 1×1 PNG 再读回 HTML，
+/// 确认 ArkTS 剪贴板桥可用。
+Future<void> _probeOhosClipboard() async {
+  const channel = MethodChannel('com.fluxdo/ohos');
+  try {
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    );
+    await channel.invokeMethod<bool>(
+      'writeImageToPasteboard',
+      <String, Object>{'bytes': png},
+    );
+    _logClipboardProbe('write-ok', null);
+  } catch (e) {
+    _logClipboardProbe('write-error', '$e');
+  }
+  try {
+    final html = await channel.invokeMethod<String>('readClipboardHtml');
+    _logClipboardProbe('read-ok', html == null ? 'null' : 'len=${html.length}');
+  } catch (e) {
+    _logClipboardProbe('read-error', '$e');
+  }
+}
+
+void _logClipboardProbe(String result, String? detail) {
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': result.endsWith('-ok') ? 'info' : 'warning',
+      'type': 'clipboard',
+      'event': 'ohos_clipboard_probe',
+      'result': result,
+      if (detail != null) 'detail': detail,
+      'platform': 'ohos',
+    });
+  } catch (_) {
+    // 日志失败不影响启动
+  }
+}
+
 /// 应用 Android 屏幕刷新率偏好。
 /// 偏好值 0 表示跟随系统（auto），非 0 则按目标刷新率从 supported 中选最匹配的 mode。
 /// 失败不阻塞启动。
@@ -608,6 +648,7 @@ Future<void> main() async {
     unawaited(_probeOhosQuickJs());
     if (kDebugMode) {
       unawaited(_probeOhosContinuousTask());
+      unawaited(_probeOhosClipboard());
     }
   }
 
