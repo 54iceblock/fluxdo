@@ -7,6 +7,7 @@ import 'blob_image_cache.dart';
 export 'blob_image_cache.dart' show BlobImageCache, BlobImageProvider;
 import 'dio_http_client.dart' show DownloadPriority;
 export 'dio_http_client.dart' show DownloadPriority;
+import '../utils/ohos_compat.dart';
 
 /// 旧 flutter_cache_manager 时代的缓存 cacheKey(2026-07 全量退役,
 /// 仅供迁移 v7/v8/v9 清理旧目录与 db 引用)。
@@ -68,10 +69,12 @@ ImageProvider discourseImageProvider(
   String bucket = BlobImageCache.contentBucket,
   DownloadPriority priority = DownloadPriority.normal,
 }) {
-  if (_isAvifUrl(url)) {
+  // HarmonyOS：flutter_avif / native_animated_image 无原生实现，
+  // 统一回退到 BlobImageProvider（由引擎内建解码器处理，静态 AVIF 亦走系统解码）。
+  if (OhosCompat.supportsAvif && _isAvifUrl(url)) {
     return AvifImageProvider(url, scale: scale, bucket: bucket);
   }
-  if (_isNativeAnimatedUrl(url)) {
+  if (OhosCompat.supportsNativeAnimatedImage && _isNativeAnimatedUrl(url)) {
     return NativeAnimatedImageProvider.fromBytesProvider(
       loader: () => BlobImageCache.fetch(bucket, url, priority: priority),
       tag: url,
@@ -103,7 +106,7 @@ ImageProvider emojiImageProvider(String url, {double scale = 1.0}) {
 ///
 /// 原文件走 stickerOriginal bucket;AVIF URL 自动使用 AvifImageProvider 解码
 ImageProvider stickerImageProvider(String url, {double scale = 1.0}) {
-  if (_isAvifUrl(url)) {
+  if (OhosCompat.supportsAvif && _isAvifUrl(url)) {
     return AvifImageProvider(
       url,
       scale: scale,

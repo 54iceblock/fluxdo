@@ -133,20 +133,8 @@ class ApkDownloadService {
             );
             break;
 
-          case OtaStatus.INSTALLATION_DONE:
-            yield ApkDownloadProgress(
-              status: ApkDownloadStatus.completed,
-              progress: 100,
-            );
-            break;
-
-          case OtaStatus.INSTALLATION_ERROR:
-            yield ApkDownloadProgress(
-              status: ApkDownloadStatus.error,
-              error: S.current.download_installFailed(event.value ?? S.current.error_unknown),
-            );
-            break;
-
+          // OHOS 移植：ota_update 7.0.2 没有 INSTALLATION_DONE / INSTALLATION_ERROR
+          // （安装完成由系统安装器接管，插件只抛 INSTALLING/错误态）。
           case OtaStatus.CANCELED:
             // 用户取消，不需要额外处理
             return;

@@ -1,0 +1,43 @@
+{
+  "app": {
+    // 刻意留空：hvigor 不接受明文签名密码，写入 signingConfigs 会导致 assembleHap 失败。
+    // 调试签名在构建之后由 tools\build-ohos.ps1 调用 tools\ohos-sign.ps1 完成。
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        // DevEco Studio 26 / HarmonyOS 7：必须写完整三段式版本号 "26.0.0"，
+        // 写 "5.0.5(17)" 或 "26" 都会在 hvigor 阶段报 SDK 版本非法。
+        "compatibleSdkVersion": "26.0.0",
+        "targetSdkVersion": "26.0.0",
+        "runtimeOS": "HarmonyOS",
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "profile"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

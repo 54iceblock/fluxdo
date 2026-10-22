@@ -173,13 +173,10 @@ class WebViewSettings {
     InAppWebViewController controller,
   ) {
     if (!Platform.isWindows) return;
-    unawaited(() async {
-      try {
-        await controller.setMemoryUsageTargetLevel(MemoryUsageTargetLevel.LOW);
-      } catch (e) {
-        debugPrint('[WebViewSettings] 设置 WebView2 低内存目标失败: $e');
-      }
-    }());
+    // OHOS 移植：inappwebview 6.1.5 移除了 setMemoryUsageTargetLevel /
+    // MemoryUsageTargetLevel（原为 6.2.0-beta 的 Windows WebView2 扩展示例 API）。
+    // 低内存目标属于性能优化而非功能，6.1.5 下直接跳过。
+    debugPrint('[WebViewSettings] 6.1.5 无 setMemoryUsageTargetLevel，跳过低内存目标设置');
   }
 
   /// 老 WKWebView (主要 iOS 15+) 兼容性脚本：core-js polyfill + JS 错误回传。

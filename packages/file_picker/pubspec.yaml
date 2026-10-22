@@ -1,0 +1,61 @@
+name: file_picker
+description: A package that allows you to use a native file explorer to pick single or multiple absolute file paths, with extension filtering support.
+homepage: https://github.com/miguelpruivo/plugins_flutter_file_picker
+repository: https://gitcode.com/CPF-Flutter/fluttertpc_file_picker
+issue_tracker: https://github.com/miguelpruivo/flutter_file_picker/issues
+version: 10.3.8
+# OHOS 移植（vendored 改动）：来自 CPF-Flutter fluttertpc_file_picker 的 TAG
+# 10.3.8-ohos-1.0.0（上游 file_picker 10.3.8 + ohos/ ArkTS 实现）。
+# 上游 fork 的包名是 file_picker_ohos、入口是 lib/file_picker_ohos.dart；
+# 这里改回 name: file_picker 并补 lib/file_picker.dart re-export，用 path 依赖无缝
+# 覆盖官方 file_picker（业务代码 import package:file_picker/file_picker.dart 不用改）。
+# 许可证：MIT（见同目录 LICENSE，上游 miguelpruivo/flutter_file_picker）。
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
+
+  flutter_plugin_android_lifecycle: ^2.0.22
+  plugin_platform_interface: ^2.1.8
+  ffi: ^2.1.3
+  path: ^1.9.0
+  win32: ^5.9.0
+  image_picker: ^1.0.4
+  cross_file: ^0.3.3+4
+  web: ^1.1.0
+  dbus: ^0.7.11
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.mr.flutter.plugin.filepicker
+        pluginClass: FilePickerPlugin
+        dartPluginClass: FilePickerIO
+      ios:
+        pluginClass: FilePickerPlugin
+        dartPluginClass: FilePickerIO
+      web:
+        pluginClass: FilePickerWeb
+        fileName: _internal/file_picker_web.dart
+      macos:
+        pluginClass: FilePickerPlugin
+        dartPluginClass: FilePickerMacOS
+      windows:
+        dartPluginClass: FilePickerWindows
+      linux:
+        dartPluginClass: FilePickerLinux
+      ohos:
+        package: com.file_picker
+        pluginClass: FilePickerPlugin

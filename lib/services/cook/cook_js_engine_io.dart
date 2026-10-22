@@ -6,8 +6,14 @@ library;
 
 import 'package:flutter_js/flutter_js.dart';
 
-/// 是否支持在本平台跑 JS cook（IO 平台恒 true）。
-const bool cookJsSupported = true;
+import '../../utils/ohos_compat.dart';
+
+/// 是否支持在本平台跑 JS cook。
+///
+/// IO 平台原本恒 true；HarmonyOS 上 flutter_js（QuickJS/JSC）没有原生库，
+/// 构造 JavascriptRuntime 会直接抛库加载错误，因此这里显式关闭，
+/// DiscourseCookService 会自动降级到 Dart 近似预览管线。
+final bool cookJsSupported = !OhosCompat.supportsCookJs;
 
 /// 裸 JS 引擎薄封装：eval 代码、取字符串结果。
 ///

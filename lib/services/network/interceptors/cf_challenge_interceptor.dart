@@ -13,6 +13,7 @@ import '../cookie/cookie_jar_service.dart';
 import '../system_proxy_service.dart';
 import '../webview/webview_adapter_settings_service.dart';
 import '../../../l10n/s.dart';
+import '../../../utils/platform_utils.dart';
 import '../exceptions/api_exception.dart';
 import '../flux_request_spec.dart';
 import '../health/network_health_controller.dart';
@@ -104,6 +105,82 @@ class CfChallengeInterceptor extends Interceptor {
     );
     if (cookieHeader != null && cookieHeader.isNotEmpty) {
       options.headers['Cookie'] = cookieHeader;
+    }
+  }
+
+  /// 用浏览器网络栈（WebViewHttpAdapter：ArkWeb 内 JS fetch）重放请求。
+  ///
+  /// HarmonyOS 上这是唯一稳定能过 CF 的通道：请求由 ArkWeb 内核发出，
+  /// HttpOnly 的 `cf_clearance` 由内核自己带，不需要导出到原生 CookieJar。
+  ///
+  /// 成功返回 response（并顺手关闭可能正在展示的验证浮层）；失败返回 null
+  /// 并回滚本次调用引入的副作用（会话兼容开关 / extra 标记），让调用方可以
+  /// 继续走原有的验证流程。
+  /// 浏览器网络栈重放的单次上限。
+  ///
+  /// 第 3 轮回归实测过：WebViewAdapter 在 OHOS 上可能挂死（JS fetch 结果
+  /// 回不到 Dart），若不加这层上限，请求会一直挂着、冷启动卡在启动页。
+  /// 超时后直接放弃这次重放、回退到原有的验证流程/错误处理，保证「失败也
+  /// 要能自动回退」。
+  static const Duration _browserStackReplayTimeout = Duration(seconds: 12);
+
+  Future<Response<dynamic>?> _replayViaBrowserStack(
+    RequestOptions options, {
+    required CfChallengeService cfService,
+    required String reason,
+    required String url,
+  }) async {
+    final settings = WebViewAdapterSettingsService.instance;
+    final wasEffective = settings.effectiveEnabled;
+    final hadSkipCf = options.extra.containsKey(
+      FluxRequestKeys.skipCfChallenge,
+    );
+    final hadSkipBlock = options.extra.containsKey(FluxRequestKeys.skipCfBlock);
+    final hadSkipAdapter =
+        options.extra[FluxRequestKeys.skipWebViewAdapter] == true;
+
+    settings.enableSessionFallback();
+    options.extra[FluxRequestKeys.skipCfChallenge] = true;
+    options.extra[FluxRequestKeys.skipCfBlock] = true;
+    options.extra.remove(FluxRequestKeys.skipWebViewAdapter);
+
+    void rollback() {
+      if (!wasEffective && !settings.persistentEnabled) {
+        settings.disableSessionFallback();
+      }
+      if (!hadSkipCf) options.extra.remove(FluxRequestKeys.skipCfChallenge);
+      if (!hadSkipBlock) options.extra.remove(FluxRequestKeys.skipCfBlock);
+      if (hadSkipAdapter) {
+        options.extra[FluxRequestKeys.skipWebViewAdapter] = true;
+      }
+    }
+
+    try {
+      final response = await dio
+          .fetch(options)
+          .timeout(
+            _browserStackReplayTimeout,
+            onTimeout: () => throw TimeoutException(
+              'browser stack replay timeout '
+              '(${_browserStackReplayTimeout.inSeconds}s)',
+            ),
+          );
+      debugPrint(
+        '[Dio][OHOS] 浏览器网络栈重放成功($reason): '
+        'status=${response.statusCode} url=$url',
+      );
+      // 兜底成功 = CF 已解决：主动关闭可能正在展示的验证浮层，避免用户
+      // 必须先点「退出」再点页面的「重试连接」。
+      cfService.dismissActiveVerificationAsSuccess(reason: reason);
+      return response;
+    } catch (e) {
+      rollback();
+      debugPrint('[Dio][OHOS] 浏览器网络栈重放失败($reason): $e');
+      CfChallengeLogger.log(
+        '[INTERCEPTOR][OHOS] browser stack replay failed ($reason): $e',
+        level: 'warning',
+      );
+      return null;
     }
   }
 
@@ -208,6 +285,29 @@ class CfChallengeInterceptor extends Interceptor {
         );
       }
 
+      // HarmonyOS：CF 只认浏览器会话（宿主机直连实测 403 + cf-mitigated:
+      // challenge），原生 dart:io 栈拿不到 HttpOnly 的 cf_clearance。冷启动
+      // 第一个主站请求若先走原生，必然 403 并弹出「安全验证」浮层，用户还得
+      // 「退出 + 重试连接」两步才能看到数据。这里在**弹浮层之前**先用浏览器
+      // 网络栈重放：成功就直接返回，全程无感。
+      if (PlatformUtils.isOhos &&
+          requestCanUseWebViewAdapter(err.requestOptions)) {
+        debugPrint(
+          '[CfChallenge][OHOS] 首次即走浏览器栈: $requestMethod $requestUrl '
+          '(mode=$requestMode)',
+        );
+        final replay = await _replayViaBrowserStack(
+          err.requestOptions,
+          cfService: cfService,
+          reason: 'pre_verify',
+          url: requestUrl,
+        );
+        if (replay != null) {
+          return handler.resolve(replay);
+        }
+        debugPrint('[CfChallenge][OHOS] 首次即走浏览器栈未成功，回退验证浮层');
+      }
+
       // 静默请求只在后台尝试验证；页面数据/操作请求在前台展示验证。
       // (Windows 曾因插件析构竞态崩溃 0xc0000005 禁用过静默后台验证;
       // vendored 插件的 aliveGuard/TextureBridge 修复落地后恢复。)
@@ -260,12 +360,50 @@ class CfChallengeInterceptor extends Interceptor {
           // 验证入口已无盾，原生链路仍被 CF 拒绝。浏览器与原生通道的
           // 放行结果可能不同，仅对用户可见请求询问一次，
           // 用户确认后本次会话改用浏览器网络栈，并立即重放原请求。
+          //
+          // HarmonyOS 例外：验证页「无盾」不等于原生栈能过 CF —— linux.do
+          // 前置的 Cloudflare 对所有非浏览器客户端返回
+          // `403 + cf-mitigated: challenge`（宿主机 Node 直连实测）。而
+          // cf_clearance 是 HttpOnly cookie，ArkWeb 只暴露
+          // `WebCookieManager.fetchCookieSync(url)`，原生 dio 侧拿不到它。
+          // 唯一稳定通过的通道是让请求由 ArkWeb 内核自己发出（浏览器网络
+          // 栈）。因此该平台上不弹「切兼容模式」询问，直接自动切换重放。
+          final retryHeaderHasClearance =
+              (retryOptions.headers['Cookie']?.toString() ??
+                      retryOptions.headers['cookie']?.toString() ??
+                      '')
+                  .contains('cf_clearance=');
+          final canUseBrowserStack = requestCanUseWebViewAdapter(retryOptions);
+          final ohosAutoFallback =
+              PlatformUtils.isOhos &&
+              canUseBrowserStack &&
+              !retryHeaderHasClearance;
+          if (PlatformUtils.isOhos && retryStillBlockedByCf) {
+            // 判定行：无论走不走兜底，都把三个闸门值打出来，避免「没触发」
+            // 时只能靠猜（上一轮就是卡在 canUseBrowserStack=false）。
+            debugPrint(
+              '[Dio][OHOS] 重试仍被 CF 挡: '
+              'hasClearance=${retryHeaderHasClearance ? 1 : 0} '
+              'canUseBrowserStack=${canUseBrowserStack ? 1 : 0} '
+              'autoFallback=${ohosAutoFallback ? 1 : 0} '
+              'silent=${isSilent ? 1 : 0}',
+            );
+          }
+          if (ohosAutoFallback) {
+            CfChallengeLogger.log(
+              '[INTERCEPTOR][OHOS] no cf_clearance in retry cookie header; '
+              'auto switch to browser network stack',
+              level: 'warning',
+            );
+          }
+
           if (retryStillBlockedByCf &&
-              !isSilent &&
-              requestCanUseWebViewAdapter(retryOptions)) {
+              (!isSilent || ohosAutoFallback) &&
+              canUseBrowserStack) {
             final webViewSettings = WebViewAdapterSettingsService.instance;
             final shouldFallback =
                 webViewSettings.effectiveEnabled ||
+                ohosAutoFallback ||
                 await cfService.confirmSessionCompatibilityMode();
             if (shouldFallback) {
               webViewSettings.enableSessionFallback();
@@ -273,10 +411,28 @@ class CfChallengeInterceptor extends Interceptor {
               // 真正改走浏览器网络栈的开关。
               retryOptions.extra.remove(FluxRequestKeys.skipWebViewAdapter);
               try {
-                final fallbackResponse = await dio.fetch(retryOptions);
+                // 与 _replayViaBrowserStack 一致：给浏览器栈重放一个硬上限，
+                // 防止 WebViewAdapter 在 OHOS 上挂死把请求（乃至冷启动）拖住。
+                final fallbackResponse = await dio
+                    .fetch(retryOptions)
+                    .timeout(
+                      _browserStackReplayTimeout,
+                      onTimeout: () => throw TimeoutException(
+                        'browser stack retry timeout '
+                        '(${_browserStackReplayTimeout.inSeconds}s)',
+                      ),
+                    );
                 CfChallengeService.showGlobalMessage(
                   S.current.cf_sessionCompatEnabled,
                   isError: false,
+                );
+                debugPrint(
+                  '[Dio][OHOS] 浏览器网络栈重放成功: '
+                  'status=${fallbackResponse.statusCode} url=$requestUrl',
+                );
+                // 兜底成功 = CF 已解决：主动关闭可能正在展示的验证浮层。
+                cfService.dismissActiveVerificationAsSuccess(
+                  reason: 'retry_blocked_fallback',
                 );
                 CfChallengeLogger.log(
                   '[INTERCEPTOR] Native retry still blocked; '
@@ -294,6 +450,17 @@ class CfChallengeInterceptor extends Interceptor {
                   '$fallbackError',
                   level: 'warning',
                 );
+                // HarmonyOS 自动兜底失败：浏览器栈也没放行说明 CF 连 WebView
+                // 都还在挡（或 adapter 本身不可用）。必须记一次无效 clearance
+                // 冷却，否则每个后续请求都会再弹一轮验证页。
+                if (ohosAutoFallback) {
+                  cfService.startIneffectiveClearanceCooldown();
+                  CfChallengeLogger.log(
+                    '[INTERCEPTOR][OHOS] browser stack fallback also blocked by CF; '
+                    'entering cooldown',
+                    level: 'warning',
+                  );
+                }
                 if (fallbackError is DioException) {
                   return handler.reject(fallbackError);
                 }
@@ -363,6 +530,27 @@ class CfChallengeInterceptor extends Interceptor {
               type: DioExceptionType.unknown,
             ),
           );
+        }
+      }
+
+      // HarmonyOS：验证没拿到成功结果（用户取消 / 超时 / 冷却期 / 无 UI）时，
+      // 原生重试必然还是 403 —— 不要把用户丢在错误页。CF 的挑战只认浏览器
+      // 会话，而 ArkWeb 内核天生带 cookie，直接切浏览器网络栈重放一次。
+      // 成功则本次会话保持兼容模式（后续主站请求都走 WebView）。
+      if (PlatformUtils.isOhos &&
+          requestCanUseWebViewAdapter(err.requestOptions)) {
+        debugPrint(
+          '[CfChallenge][OHOS] 验证未成功(result=$result)，直接切浏览器网络栈重放: '
+          '$requestMethod $requestUrl',
+        );
+        final replay = await _replayViaBrowserStack(
+          err.requestOptions,
+          cfService: cfService,
+          reason: 'verify_incomplete',
+          url: requestUrl,
+        );
+        if (replay != null) {
+          return handler.resolve(replay);
         }
       }
 

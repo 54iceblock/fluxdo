@@ -1,0 +1,13 @@
+{
+  "modelVersion": "5.1.0",
+  "name": "fluxdo",
+  "version": "0.2.29",
+  "description": "FluxDO（linux.do / Discourse 客户端）HarmonyOS 7 工程",
+  "main": "",
+  "author": "fluxdo",
+  "license": "",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.6"
+  }
+}

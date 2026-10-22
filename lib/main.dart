@@ -120,6 +120,7 @@ import 'providers/read_later_provider.dart';
 import 'providers/shortcut_provider.dart';
 import 'widgets/keyboard_shortcut_handler.dart';
 import 'utils/platform_utils.dart';
+import 'utils/ohos_compat.dart';
 import 'utils/discourse_url_parser.dart';
 
 /// 初始化 rhttp Rust runtime
@@ -172,9 +173,11 @@ Future<void> main() async {
   //   GStreamer 桥已稳定,换后端无收益)。
   if (!kIsWeb && Platform.isLinux) {
     JustAudioGst.registerWith();
-  } else {
+  } else if (PlatformUtils.isDesktop) {
     JustAudioMediaKit.ensureInitialized(linux: false);
   }
+  // HarmonyOS：just_audio 由 OHOS 平台实现注册（just_audio_harmonyos），
+  // 不走 desktop 的 media_kit 后端。
 
   // video_player 官方无 Windows/Linux 后端,两平台桥接到 media_kit(libmpv),
   // 必须先于任何 VideoPlayerController 创建。其余平台维持官方后端。
@@ -254,7 +257,12 @@ Future<void> main() async {
   HighlighterService.instance.initialize(); // 不需要 await，后台初始化
 
   // 初始化本地通知服务（请求权限）
-  LocalNotificationService().initialize(); // 不需要 await，后台初始化
+  // HarmonyOS：本地通知走 OHOS 平台实现；失败只影响通知，不应阻断启动。
+  unawaited(
+    LocalNotificationService().initialize().catchError((Object e) {
+      debugPrint('[Main] 本地通知初始化失败（可忽略）: $e');
+    }),
+  );
 
   // Android：临时关闭 WebView DevTools 调试，停用原生 CDP 链路
   if (Platform.isAndroid) {
@@ -374,18 +382,25 @@ Future<void> main() async {
   await WebViewAdapterSettingsService.instance.initialize(prefs);
   // Eruda 调试控制台开关 (默认关)
   await ErudaSettingsService.instance.initialize(prefs);
-  try {
-    final rhttp = await Future.any([
-      _initRhttp(),
-      Future.delayed(const Duration(seconds: 5), () => false),
-    ]);
-    if (rhttp != true) {
-      debugPrint('[rhttp] 初始化超时或失败');
+  if (!OhosCompat.supportsRhttp) {
+    // HarmonyOS 首版：rhttp 的 Rust 动态库/FRB 加载器尚未移植，直接禁用，
+    // 网络回退到 dio 默认 IOHttpClientAdapter（不阻塞启动）。
+    debugPrint('[rhttp] HarmonyOS 暂不支持，已强制关闭');
+    await RhttpSettingsService.instance.forceDisable();
+  } else {
+    try {
+      final rhttp = await Future.any([
+        _initRhttp(),
+        Future.delayed(const Duration(seconds: 5), () => false),
+      ]);
+      if (rhttp != true) {
+        debugPrint('[rhttp] 初始化超时或失败');
+        await RhttpSettingsService.instance.forceDisable();
+      }
+    } catch (e) {
+      debugPrint('[rhttp] 初始化异常: $e');
       await RhttpSettingsService.instance.forceDisable();
     }
-  } catch (e) {
-    debugPrint('[rhttp] 初始化异常: $e');
-    await RhttpSettingsService.instance.forceDisable();
   }
 
   // Windows 固定系统代理必须先于本地 DoH/WebView 网关读取，网关才能按

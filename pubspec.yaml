@@ -58,10 +58,20 @@ dependencies:
     path: packages/enhanced_cookie_jar
   re_highlight: ^0.0.3
   google_fonts: ^8.0.0
-  share_plus: ^12.0.1
+  # OHOS 移植（vendored）：CPF-Flutter fork 的 share_plus 12.0.1 + ohos/ ArkTS 实现，
+  # 用 path 依赖替代官方 12.0.2（Dart API 不变，业务代码 import 不用改）。
+  # 配套 packages/share_plus_platform_interface 也是 vendored（去掉了嵌套 git 依赖）。
+  # 其他五端本轮同样走这份 fork，拆双 pubspec 时可整体回退。详见 docs/ohos-pubspec-changes.md §10。
+  share_plus:
+    path: packages/share_plus
   cross_file: ^0.3.4+2
   open_filex: ^4.7.0
-  file_picker: ^10.3.10
+  # OHOS 移植（vendored）：CPF-Flutter fluttertpc_file_picker TAG 10.3.8-ohos-1.0.0
+  # （file_picker 10.3.8 + ohos/ ArkTS 实现）。fork 原包名 file_picker_ohos，
+  # 已改回 file_picker 并补 lib/file_picker.dart re-export，业务代码零改动。
+  # 版本从 10.3.10 降到 10.3.8（上游 patch 级差异），需随五端回归。
+  file_picker:
+    path: packages/file_picker
   record: ^7.1.1  # 语音消息录制(AAC-LC,五端)
   intl: ^0.20.2
   url_launcher: ^6.3.1
@@ -153,6 +163,40 @@ dependencies:
   # 此包给 ThemeData 注入平台合适的中文字体到 fontFamilyFallback。
   chinese_font_library: ^1.2.0
 
+  # ======================= HarmonyOS / OHOS 平台实现（叠加包） =======================
+  # 逻辑：Dart API 仍由上面的官方 app-facing 包提供，这里只补 OHOS 平台实现；
+  # 其中 *_ohos / *_harmonyos / record_ohos 只声明 ohos 平台，Android/iOS/桌面构建会忽略。
+  # 唯一例外：saver_gallery 是「替代包」（gal 无 OHOS 实现），声明 android/ios/ohos。
+  # 迁移说明与回滚方式：docs/ohos-pubspec-changes.md
+  #
+  # pub.dev 官方 OHOS 联邦实现（dartPluginClass 注册，Flutter 3.3+/3.16+ 即可）
+  path_provider_ohos: ^2.2.1
+  shared_preferences_ohos: ^2.2.0
+  url_launcher_ohos: ^6.3.0
+  # Wayaer/harmony_flutter_packages 的联邦实现（已发布到 pub.dev，0.0.1）
+  image_picker_harmonyos: 0.0.1
+  video_player_harmonyos: 0.0.1
+  # OHOS 移植：vendored 到 packages/just_audio_harmonyos —— 上游 0.0.1 的
+  # MediaSource.ets 未实现 API 26 新增的 enableOfflineCache()/getID()，
+  # ArkTS 编译报 "incorrectly implements media.MediaSource"。本地副本已补齐。
+  just_audio_harmonyos:
+    path: packages/just_audio_harmonyos
+  audio_session_harmonyos: 0.0.1
+  wakelock_plus_harmonyos: 0.0.1
+  package_info_plus_harmonyos: 0.0.1
+  # 原生-only 实现：Dart API 由官方 flutter_secure_storage / record 提供，
+  # 这两个包只注册 OHOS 原生插件（通道名与官方一致）。
+  flutter_secure_storage_ohos:
+    git:
+      url: https://github.com/ClosedHarmony/flutter_secure_storage_ohos.git
+      ref: main
+  record_ohos:
+    git:
+      url: https://github.com/ClosedHarmony/record_ohos.git
+      ref: main
+  # gal 无 OHOS 实现；saver_gallery 5.x 起支持 OHOS（内部走 SaveButton，无需媒体库权限）。
+  saver_gallery: ^5.1.0
+
   window_manager: ^0.5.1
   screen_retriever: ^0.2.1
   flutter_acrylic: ^1.1.4
@@ -204,18 +248,89 @@ dependencies:
   vm_service: ^15.2.0
   full_svg_flutter: ^1.3.0
 dependency_overrides:
+  # ==================== HarmonyOS / OHOS：CPF-Flutter 官方适配 fork ====================
+  # 全部为 gitcode.com/CPF-Flutter 组织下的 OHOS 分支/TAG（已用 git ls-remote + raw
+  # pubspec 验证存在；TAG 命名规则 <上游版本>-ohos-<x.y.z>）。改动原因、版本差与回滚
+  # 方式见 docs/ohos-pubspec-changes.md。回滚：删除下面 config 段，恢复
+  # `device_info_plus: 12.3.0`，然后 flutter pub get。
+  # 注意：单 pubspec 临时策略会让这 11 个包在 Android/iOS/桌面端也使用 fork 版本
+  #（inappwebview 6.2.0-beta.3→6.1.5、mobile_scanner 7.4.2→7.1.4 等），后续拆双
+  # pubspec 时整体搬走即可。
+  device_info_plus:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git
+      ref: br_device_info_plus-v12.3.0_ohos
+      path: packages/device_info_plus/device_info_plus
+  connectivity_plus:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git
+      ref: br_connectivity_plus-v7.0.0_ohos
+      path: packages/connectivity_plus/connectivity_plus
+  open_filex:
+    git:
+      url: https://gitcode.com/CPF-Flutter/fluttertpc_open_filex.git
+      ref: 4.7.0-ohos-1.0.0
+  mobile_scanner:
+    git:
+      url: https://gitcode.com/CPF-Flutter/fluttertpc_mobile_scanner.git
+      ref: br_v7.1.4_ohos
+  volume_controller:
+    git:
+      url: https://gitcode.com/CPF-Flutter/fluttertpc_volume_controller.git
+      ref: br_v3.6.0_ohos_dev
+  app_links:
+    git:
+      url: https://gitcode.com/CPF-Flutter/fluttertpc_app_links.git
+      ref: 7.0.0-ohos-1.0.1
+      path: app_links
+  flutter_local_notifications:
+    git:
+      url: https://gitcode.com/CPF-Flutter/fluttertpc_flutter_local_notifications.git
+      ref: br_3.41_dev
+      path: flutter_local_notifications
+  # sqflite 是 flutter_cache_manager 的传递依赖；fork 内 sqflite_ohos 是 path 依赖，
+  # 会随 git checkout 一起解析（不额外覆盖 sqflite_ohos）。
+  sqflite:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_sqflite.git
+      ref: br_3.41_dev
+      path: sqflite
+  # flutter_inappwebview 是联邦插件：fork 的 app-facing 包通过 path 依赖引用
+  # platform_interface(1.3.0+1)/android/ios/macos/web/windows/ohos，因此三个包一起
+  # 用同一 git ref 覆盖，避免与 pub 上 1.4.0-beta.x 混用导致 source 冲突。
+  flutter_inappwebview:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_inappwebview.git
+      ref: br_v6.1.5_ohos
+      path: flutter_inappwebview
+  flutter_inappwebview_platform_interface:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_inappwebview.git
+      ref: br_v6.1.5_ohos
+      path: flutter_inappwebview_platform_interface
+  # ota_update：OHOS 分支新增 executeOhos()，原有 Android API 不变。
+  ota_update:
+    git:
+      url: https://gitcode.com/CPF-Flutter/fluttertpc_ota_update.git
+      ref: br_3.35
+
   # super_clipboard 0.9.1 要求 device_info_plus <12.0.0，
-  # 但实际 12.x 接口兼容，强制使用项目版本
-  device_info_plus: 12.3.0
-  flutter_inappwebview_linux:
-    path: packages/flutter_inappwebview_linux
-  # Windows 插件析构存在悬垂 this 回调 UAF(CF 验证 WebView 销毁时闪退),
-  # vendored 版本带 aliveGuard 修复
-  flutter_inappwebview_windows:
-    path: packages/flutter_inappwebview_windows
+  # 但实际 12.x 接口兼容，强制使用项目版本（现由上面的 OHOS fork 12.3.0 提供）。
+  # ---------------------------------------------------------------------------
+  # OHOS 移植：inappwebview 6.1.5 fork 自带配套的 flutter_inappwebview_windows /
+  # _linux（fork 内相对 path 依赖，平台接口 1.3.0+1）。仓库里 vendored 的
+  # windows/linux fork 是 6.2.0-beta.3 配套（PI 1.4.0-beta），与 6.1.5 类型冲突，
+  # 会导致 OHOS 构建 kernel 编译失败，故 OHOS 分支下不再 override 它们。
+  # 桌面端如需恢复旧修复，需同步升级 inappwebview 主包，属后续独立事项。
   # 锁定 flutter_rust_bridge 版本，与 rhttp 插件的 codegen 版本保持一致。
   # rhttp_plus 已同步 upstream 0.18.0，生成代码基于 2.12.0。
   flutter_rust_bridge: 2.12.0
+  # OHOS 移植：flutter_math_fork 0.7.4 上游对 TargetPlatform 的 switch 未覆盖
+  # `TargetPlatform.ohos`（Flutter OHOS fork 新增的平台枚举），触发
+  # "type 'TargetPlatform' is not exhaustively matched" 编译错误。
+  # 这里 vendored 一份到 packages/flutter_math_fork 并补齐 ohos 分支。
+  flutter_math_fork:
+    path: packages/flutter_math_fork
 dev_dependencies:
   flutter_test:
     sdk: flutter

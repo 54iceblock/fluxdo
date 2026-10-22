@@ -111,3 +111,7 @@ linux/.ffmpeg-cache/
 packages/flutter_inappwebview_*/example/*/flutter/ephemeral/
 packages/flutter_inappwebview_windows/pubspec.lock
 packages/flutter_inappwebview_windows/example/pubspec.lock
+
+# OHOS 依赖目录（构建产物，不应入库）
+oh_modules/
+**/oh_modules/

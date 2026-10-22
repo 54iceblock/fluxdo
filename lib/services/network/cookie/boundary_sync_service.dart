@@ -7,6 +7,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:synchronized/synchronized.dart';
 
 import '../../../constants.dart';
+import '../../../utils/platform_utils.dart';
 import '../../auth_session.dart';
 import '../../log/log_writer.dart';
 import '../../cf_clearance_authority.dart';
@@ -193,6 +194,28 @@ class BoundarySyncService {
       final cookiesToPersist = <Cookie>[];
       final cookieGroups = <String, List<Cookie>>{};
 
+      // HarmonyOS 诊断：ArkWeb 只回 name=value（属性全 null），且读的是
+      // 「当前 URL 的 Cookie 头」。CF 403 排查时这里是判定关键：
+      // hasCfClearance=false → ArkWeb 侧根本没有该 cookie，或 HTTPOnly 的
+      // cf_clearance 没被 fetchCookieSync 暴露出来；
+      // hasCfClearance=true 但 jar 里仍没有 → 问题在后面的持久化，
+      // 看本函数末尾的「jar 落库确认」日志。
+      if (PlatformUtils.isOhos) {
+        final names = webViewCookies.map((cookie) => cookie.name).toSet();
+        final wanted = cookieNames;
+        final missing = wanted == null
+            ? const <String>[]
+            : wanted
+                  .where((name) => !names.contains(name))
+                  .toList(growable: false);
+        debugPrint(
+          '[BoundarySync][OHOS] WebView read url=$url '
+          'cookies=${webViewCookies.length} names=${names.length} '
+          'hasCfClearance=${names.contains(CfClearanceAuthority.cookieName)} '
+          'missing=${missing.join(',')}',
+        );
+      }
+
       for (final wc in webViewCookies) {
         final value = wc.value?.toString() ?? '';
         if (value.isEmpty) continue;
@@ -344,7 +367,10 @@ class BoundarySyncService {
       }
 
       if (toSave.isEmpty) {
-        debugPrint('[BoundarySync] 未从 WebView 读取到有效 cookie: url=$url');
+        debugPrint(
+          '[BoundarySync] 未从 WebView 读取到有效 cookie: url=$url'
+          '${PlatformUtils.isOhos && cookieNames != null ? ' names=$cookieNames' : ''}',
+        );
         return;
       }
 
@@ -404,6 +430,23 @@ class BoundarySyncService {
             'forcedHostOnlySessionCookies': forcedHostOnlySessionCookies,
         },
       );
+
+      // HarmonyOS 落库确认：读到了不代表写进去了（OHOS 返回的 cookie 没有
+      // domain/expires 属性，走的是兜底 domain）。这行是「同步链路是否
+      // 真正成功」的唯一判据。
+      if (PlatformUtils.isOhos) {
+        final persisted = await _jar.getCookieDiagnosticsForRequest(
+          Uri.parse(AppConstants.baseUrl),
+          names: const {CfClearanceAuthority.cookieName},
+        );
+        final valueLength = persisted.isEmpty
+            ? 0
+            : (persisted.first['valueLength'] as int? ?? 0);
+        debugPrint(
+          '[BoundarySync][OHOS] jar 落库确认: '
+          'cf_clearance=${valueLength > 0 ? '$valueLength chars' : 'null'}',
+        );
+      }
     } catch (e) {
       CookieLogger.error(operation: 'boundary_sync', error: e.toString());
     }

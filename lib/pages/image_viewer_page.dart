@@ -22,6 +22,7 @@ import '../models/shortcut_binding.dart';
 import '../providers/shortcut_provider.dart';
 import '../services/toast_service.dart';
 import '../utils/platform_utils.dart';
+import '../utils/ohos_compat.dart';
 import '../utils/share_utils.dart';
 import '../widgets/common/app_bottom_sheet.dart';
 import '../widgets/common/hero_image.dart';
@@ -1653,7 +1654,7 @@ class _ImageDecodeFallbackState extends State<_ImageDecodeFallback> {
       );
     }
 
-    if (_isAvif) {
+    if (_isAvif && OhosCompat.supportsAvif) {
       // 使用 AvifImageProvider 解码并渲染，自动支持动画 AVIF
       return Center(
         child: Image(

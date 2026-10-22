@@ -7,6 +7,7 @@ import 'package:ua_client_hints/ua_client_hints.dart';
 import 'config/site_customization.dart';
 import 'config/sites/linuxdo.dart';
 import 'services/windows_webview_environment_service.dart';
+import 'utils/platform_utils.dart';
 
 /// 应用常量
 class AppConstants {
@@ -272,6 +273,13 @@ class AppConstants {
   /// 版本号对齐 Chrome 131 (2024.11)，避免过旧被 Cloudflare 等拦截
   static String _buildDefaultUserAgent() {
     if (Platform.isAndroid) {
+      return 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
+          '(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
+    }
+    // HarmonyOS：必须报移动端 UA。OHOS 上 Platform.isAndroid/isIOS 均为 false，
+    // 若不单独处理会落到下面的 Linux 桌面 UA，linux.do 前置的 Cloudflare 会对
+    // 「手机设备 + X11 桌面 UA」直接返回 403（实测游客访问即被拦）。
+    if (PlatformUtils.isOhos) {
       return 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
           '(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
     }
