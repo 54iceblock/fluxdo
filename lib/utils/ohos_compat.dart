@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'platform_utils.dart';
 
@@ -42,7 +42,7 @@ class OhosCompat {
   /// 但 `createPixelMap` 三个变体（RGBA/默认/createPixelMapList）全部报
   /// "Decode image header failed"，即系统解码器不含 AVIF 像素解码。
   /// 因此仍关闭；后续走自编 libavif + dav1d 的方案。
-  static bool get supportsAvif => !isOhos;
+  static bool get supportsAvif => true;
 
   /// 是否支持 super_clipboard（富文本剪贴板）
   /// OHOS：暂无实现，回退纯文本剪贴板。

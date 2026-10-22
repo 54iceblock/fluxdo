@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
@@ -8,6 +8,7 @@ import '../l10n/s.dart';
 import '../utils/platform_utils.dart';
 import '../utils/scroll_busy_signal.dart';
 import 'avif_fast_bridge.dart';
+import 'avif_ohos_codec.dart';
 import 'blob_image_cache.dart';
 
 /// 限制并发 AVIF 解码数(thumbnail batch 场景)。
@@ -88,6 +89,32 @@ Future<ui.Codec?> _tryEngineAvifCodec(Uint8List bytes, {int? maxDim}) async {
 const MethodChannel _ohosAvifChannel = MethodChannel('com.fluxdo/ohos');
 
 Future<ui.Codec?> _tryOhosAvifCodec(Uint8List bytes, {int? maxDim}) async {
+  // 首选：自编 libavif + dav1d（libohos_avif.so，随 HAP 打包）。
+  final native = OhosAvifCodec.instance.decode(bytes, maxDim: maxDim);
+  if (native != null) {
+    try {
+      final buffer = await ui.ImmutableBuffer.fromUint8List(native.rgba);
+      final descriptor = ui.ImageDescriptor.raw(
+        buffer,
+        width: native.width,
+        height: native.height,
+        rowBytes: native.width * 4,
+        pixelFormat: ui.PixelFormat.rgba8888,
+      );
+      return await descriptor.instantiateCodec();
+    } catch (e) {
+      debugPrint('[Avif] OHOS 原生解码结果转 codec 失败: $e');
+    }
+  }
+  // 兜底：系统 ImageKit（实测多数设备只能解析容器头，解码会失败）
+  return _tryOhosAvifCodecViaImageKit(bytes, maxDim: maxDim);
+}
+
+/// 走 ArkTS 桥、由系统 ImageKit 解码（兜底路径）。
+Future<ui.Codec?> _tryOhosAvifCodecViaImageKit(
+  Uint8List bytes, {
+  int? maxDim,
+}) async {
   try {
     final res = await _ohosAvifChannel.invokeMethod<Map<Object?, Object?>>(
       'decodeAvif',

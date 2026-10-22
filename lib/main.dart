@@ -22,6 +22,7 @@ import 'widgets/ai/builtin_presets_factory.dart';
 import 'providers/message_bus_providers.dart';
 import 'providers/chat/chat_notification_alert_provider.dart';
 import 'services/auth_issue_notice_service.dart';
+import 'services/avif_ohos_codec.dart';
 import 'services/crash_context_reporter.dart';
 import 'providers/app_state_refresher.dart';
 import 'services/highlighter_service.dart';
@@ -167,40 +168,42 @@ void _logNativeCodec(String result, String? version, {String? error}) {
   }
 }
 
-/// AVIF 能力探测：把本地样本交给 HarmonyOS ImageKit 试解，结果写日志。
-///
-/// 系统 ImageKit 若能解 AVIF，就可以在 OHOS 上补一条 AVIF 解码路径
-/// （目前 flutter_avif 没有 OHOS 平台实现）。
+/// AVIF 能力探测：分别验证「系统 ImageKit」与「自编 libavif+dav1d」两条路径。
 Future<void> _probeOhosAvifSupport() async {
   const channel = MethodChannel('com.fluxdo/ohos');
+  Uint8List? bytes;
   try {
     // 样本来自打包资源（assets/probe/avif-probe.avif），避免依赖外部文件权限。
     final data = await rootBundle.load('assets/probe/avif-probe.avif');
-    final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  } catch (e) {
+    _logAvifProbe('no-sample', '$e');
+    return;
+  }
+
+  // 1) 系统 ImageKit：只解析容器头（解码多数设备会失败，仅作记录）
+  try {
     final info = await channel.invokeMethod<Map<Object?, Object?>>(
       'probeAvif',
       <String, Object>{'bytes': bytes},
     );
     _logAvifProbe('ok', info?.toString());
-    // 再走一遍真实解码路径，确认能拿到 RGBA 像素。
-    final decoded = await channel.invokeMethod<Map<Object?, Object?>>(
-      'decodeAvif',
-      <String, Object>{'bytes': bytes, 'maxDim': 256},
-    );
-    if (decoded == null) {
-      _logAvifProbe('decode-null', null);
-    } else {
-      final px = decoded['bytes'];
-      final len = px is Uint8List
-          ? px.length
-          : (px is List ? px.length : -1);
-      _logAvifProbe(
-        'decode-ok',
-        'w=${decoded['width']} h=${decoded['height']} rgba=$len',
-      );
-    }
   } catch (e) {
     _logAvifProbe('error', '$e');
+  }
+
+  // 2) 自编 native 库（supportsAvif 实际依赖的那条路径）
+  final native = OhosAvifCodec.instance.decode(bytes, maxDim: 256);
+  if (native == null) {
+    _logAvifProbe(
+      'native-null',
+      'available=${OhosAvifCodec.instance.isAvailable}',
+    );
+  } else {
+    _logAvifProbe(
+      'native-ok',
+      'w=${native.width} h=${native.height} rgba=${native.rgba.length}',
+    );
   }
 }
 
