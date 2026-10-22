@@ -5,7 +5,21 @@
     // 注意：若 DevEco Studio 打开工程后自动写入 signingConfigs（含加密密码），
     // assembleHap 会在 SignHap 阶段报 "No permission write to signConfigCheckJson.json"，
     // 需要把这里恢复成空数组再跑脚本构建。
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\iceblock\\.ohos\\config\\default_ohos_<scrubbed>.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "<scrubbed>",
+          "profile": "C:\\Users\\iceblock\\.ohos\\config\\default_ohos_<scrubbed>.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\iceblock\\.ohos\\config\\default_ohos_<scrubbed>.p12",
+          "storePassword": "<scrubbed>"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
