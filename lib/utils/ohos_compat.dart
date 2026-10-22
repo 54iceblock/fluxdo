@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'platform_utils.dart';
 
@@ -16,13 +16,14 @@ class OhosCompat {
   static bool get isOhos => PlatformUtils.isOhos;
 
   /// 是否支持 Rust DOH 代理（core/doh_proxy）
-  /// OHOS：已交叉编译 libdoh_proxy.so（x86_64 / arm64-v8a）并打进 HAP 的 libs/<abi>/，
+  /// OHOS：已交叉编译 libdoh_proxy.so（x86_64 / arm64-v8a）并打进 HAP 的 libs/`<abi>`/，
   /// 运行时由 `DynamicLibrary.open('libdoh_proxy.so')` 加载（见 doh_proxy_ffi.dart）。
   static bool get supportsDohProxy => true;
 
   /// 是否支持 rhttp（Rust reqwest / TLS 指纹）
-  /// OHOS：暂无 FRB 平台加载器，强制关闭，回退 dio 默认适配器。
-  static bool get supportsRhttp => !isOhos;
+  /// OHOS：已交叉编译 librhttp.so 并打进 HAP；FRB 默认加载器不识别 OHOS，
+  /// 由 main.dart 显式传 externalLibraryPath='librhttp.so' 加载。
+  static bool get supportsRhttp => true;
 
   /// 是否支持 flutter_js（Discourse markdown-it cook 渲染）
   /// OHOS：暂无 QuickJS 原生库，回退纯 Dart 渲染预览。

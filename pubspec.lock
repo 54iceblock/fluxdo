@@ -1999,11 +1999,9 @@ packages:
   rhttp:
     dependency: "direct main"
     description:
-      path: rhttp
-      ref: HEAD
-      resolved-ref: "02eb4114b57c108e76a9ed526b6118bc048b5604"
-      url: "https://github.com/Lingyan000/rhttp_plus.git"
-    source: git
+      path: "packages/rhttp"
+      relative: true
+    source: path
     version: "0.18.0"
   riverpod:
     dependency: transitive

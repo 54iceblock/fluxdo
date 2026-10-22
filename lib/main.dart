@@ -124,9 +124,30 @@ import 'utils/ohos_compat.dart';
 import 'utils/discourse_url_parser.dart';
 
 /// 初始化 rhttp Rust runtime
+///
+/// HarmonyOS：FRB 默认加载器不认识该平台，这里显式指定原生库名
+/// （`librhttp.so` 已交叉编译并随 HAP 的 libs/`<abi>`/ 打包）。
 Future<bool> _initRhttp() async {
-  await rhttp.Rhttp.init();
+  await rhttp.Rhttp.init(
+    externalLibraryPath: PlatformUtils.isOhos ? 'librhttp.so' : null,
+  );
   return true;
+}
+
+/// 把 rhttp 初始化结果落盘（Dart 的 debugPrint 在 HarmonyOS 不进 hilog）。
+void _logRhttpInit(String result, String? error) {
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': result == 'ok' ? 'info' : 'warning',
+      'type': 'rhttp',
+      'event': 'rhttp_init',
+      'result': result,
+      'platform': PlatformUtils.isOhos ? 'ohos' : 'other',
+      if (error != null) 'error': error,
+    });
+  } catch (_) {
+    // 日志失败不影响启动
+  }
 }
 
 /// 应用 Android 屏幕刷新率偏好。
@@ -383,9 +404,9 @@ Future<void> main() async {
   // Eruda 调试控制台开关 (默认关)
   await ErudaSettingsService.instance.initialize(prefs);
   if (!OhosCompat.supportsRhttp) {
-    // HarmonyOS 首版：rhttp 的 Rust 动态库/FRB 加载器尚未移植，直接禁用，
-    // 网络回退到 dio 默认 IOHttpClientAdapter（不阻塞启动）。
-    debugPrint('[rhttp] HarmonyOS 暂不支持，已强制关闭');
+    // 平台不支持 rhttp：网络回退到 dio 默认 IOHttpClientAdapter（不阻塞启动）。
+    debugPrint('[rhttp] 当前平台不支持，已强制关闭');
+    _logRhttpInit('unsupported', null);
     await RhttpSettingsService.instance.forceDisable();
   } else {
     try {
@@ -395,10 +416,14 @@ Future<void> main() async {
       ]);
       if (rhttp != true) {
         debugPrint('[rhttp] 初始化超时或失败');
+        _logRhttpInit('timeout', null);
         await RhttpSettingsService.instance.forceDisable();
+      } else {
+        _logRhttpInit('ok', null);
       }
     } catch (e) {
       debugPrint('[rhttp] 初始化异常: $e');
+      _logRhttpInit('error', '$e');
       await RhttpSettingsService.instance.forceDisable();
     }
   }
