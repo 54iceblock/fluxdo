@@ -353,6 +353,36 @@ void _logClipboardProbe(String result, String? detail) {
   }
 }
 
+/// 本地通知能力探测（仅 debug）：初始化插件并发一条测试通知。
+Future<void> _probeOhosNotification() async {
+  try {
+    final service = LocalNotificationService();
+    await service.initialize();
+    await service.show(
+      title: 'FluxDO 通知测试',
+      body: 'HarmonyOS 本地通知链路正常',
+    );
+    _logNotificationProbe('ok', null);
+  } catch (e) {
+    _logNotificationProbe('error', '$e');
+  }
+}
+
+void _logNotificationProbe(String result, String? detail) {
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': result == 'ok' ? 'info' : 'warning',
+      'type': 'notification',
+      'event': 'ohos_notification_probe',
+      'result': result,
+      if (detail != null) 'error': detail,
+      'platform': 'ohos',
+    });
+  } catch (_) {
+    // 日志失败不影响启动
+  }
+}
+
 /// 应用 Android 屏幕刷新率偏好。
 /// 偏好值 0 表示跟随系统（auto），非 0 则按目标刷新率从 supported 中选最匹配的 mode。
 /// 失败不阻塞启动。
@@ -649,6 +679,7 @@ Future<void> main() async {
     if (kDebugMode) {
       unawaited(_probeOhosContinuousTask());
       unawaited(_probeOhosClipboard());
+      unawaited(_probeOhosNotification());
     }
   }
 
