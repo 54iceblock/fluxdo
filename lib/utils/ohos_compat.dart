@@ -43,10 +43,9 @@ class OhosCompat {
   static bool get supportsDesktopWindow => PlatformUtils.isDesktop;
 
   /// 是否支持相机扫码（mobile_scanner）
-  /// OHOS：首版用相册选图 + zxing2 兜底。
+  /// OHOS：使用 CPF fork 的 OHOS 实现；相机不可用时页面内提供相册 + zxing2 兜底。
   static bool get supportsCameraScanner =>
-      !isOhos &&
-      (Platform.isAndroid || Platform.isIOS || Platform.isMacOS);
+      Platform.isAndroid || Platform.isIOS || Platform.isMacOS || isOhos;
 
   /// 是否支持系统相册保存（gal）
   /// OHOS：走系统 Picker/SaveButton，暂用文件导出兜底。

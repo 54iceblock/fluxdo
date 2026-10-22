@@ -10,11 +10,14 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../l10n/s.dart';
 import '../services/qr_login_service.dart';
 import '../services/toast_service.dart';
+import '../utils/platform_utils.dart';
 import 'package:m3e_ui/m3e_ui.dart';
 
 /// 待登录设备:扫描另一台已登录设备展示的登录二维码。
 ///
-/// - Android / iOS / macOS:优先实时相机([mobile_scanner])
+/// - Android / iOS / macOS / HarmonyOS:优先实时相机([mobile_scanner])
+///   （HarmonyOS 用 CPF fork 的 OHOS 实现；相机不可用时由 errorBuilder
+///   展示「从相册选择」兜底，不会卡死）
 /// - Linux / Windows / 无相机:从相册选图,用 zxing2 解码
 class QrLoginScanPage extends StatefulWidget {
   const QrLoginScanPage({super.key});
@@ -44,7 +47,12 @@ class _QrLoginScanPageState extends State<QrLoginScanPage> {
 
   bool get _isCameraPlatform {
     if (kIsWeb) return false;
-    return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
+    // HarmonyOS：mobile_scanner 有 CPF 的 OHOS 实现，允许尝试实时相机；
+    // 若相机/插件不可用，MobileScanner 的 errorBuilder 会给出「从相册选择」兜底。
+    return Platform.isAndroid ||
+        Platform.isIOS ||
+        Platform.isMacOS ||
+        PlatformUtils.isOhos;
   }
 
   @override
