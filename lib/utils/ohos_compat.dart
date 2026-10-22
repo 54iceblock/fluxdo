@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'platform_utils.dart';
 
@@ -30,8 +30,9 @@ class OhosCompat {
   static bool get supportsCookJs => !isOhos;
 
   /// 是否支持 native_animated_image（Rust 动图解码）
-  /// OHOS：暂无原生库，回退 Flutter 内置 ImageProvider。
-  static bool get supportsNativeAnimatedImage => !isOhos;
+  /// OHOS：已交叉编译 libnative_animated_image_codec.so（GIF/APNG/动图 WebP）
+  /// 并打进 HAP 的 libs/`<abi>`/，加载分支见 vendored 包的 bindings。
+  static bool get supportsNativeAnimatedImage => true;
 
   /// 是否支持 flutter_avif（libavif/dav1d）
   /// OHOS：暂无原生库，AVIF 走平台 ImageKit 或占位。

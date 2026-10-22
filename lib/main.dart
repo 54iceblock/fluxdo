@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 
 import 'package:catcher_2/catcher_2.dart';
@@ -10,7 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:native_animated_image/native_animated_image.dart'
-    show NativeAnimatedImageProvider;
+    show NativeAnimatedImageProvider, NativeAnimatedImageFfi;
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as acrylic;
 import 'pages/topics_page.dart';
@@ -142,6 +142,23 @@ void _logRhttpInit(String result, String? error) {
       'type': 'rhttp',
       'event': 'rhttp_init',
       'result': result,
+      'platform': PlatformUtils.isOhos ? 'ohos' : 'other',
+      if (error != null) 'error': error,
+    });
+  } catch (_) {
+    // 日志失败不影响启动
+  }
+}
+
+/// 把原生动图解码库的探测结果落盘。
+void _logNativeCodec(String result, String? version, {String? error}) {
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': result == 'ok' ? 'info' : 'warning',
+      'type': 'image',
+      'event': 'native_animated_codec',
+      'result': result,
+      if (version != null) 'version': version,
       'platform': PlatformUtils.isOhos ? 'ohos' : 'other',
       if (error != null) 'error': error,
     });
@@ -425,6 +442,16 @@ Future<void> main() async {
       debugPrint('[rhttp] 初始化异常: $e');
       _logRhttpInit('error', '$e');
       await RhttpSettingsService.instance.forceDisable();
+    }
+  }
+
+  // 原生动图解码库探测：加载成功即记录版本号，便于确认 OHOS 上 FFI 可用。
+  if (OhosCompat.supportsNativeAnimatedImage) {
+    try {
+      final codecVersion = NativeAnimatedImageFfi.instance.version();
+      _logNativeCodec('ok', codecVersion);
+    } catch (e) {
+      _logNativeCodec('error', null, error: '$e');
     }
   }
 
