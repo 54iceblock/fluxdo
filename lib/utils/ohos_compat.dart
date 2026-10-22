@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'platform_utils.dart';
 
@@ -25,9 +25,10 @@ class OhosCompat {
   /// 由 main.dart 显式传 externalLibraryPath='librhttp.so' 加载。
   static bool get supportsRhttp => true;
 
-  /// 是否支持 flutter_js（Discourse markdown-it cook 渲染）
-  /// OHOS：暂无 QuickJS 原生库，回退纯 Dart 渲染预览。
-  static bool get supportsCookJs => !isOhos;
+  /// 是否支持 JS cook 渲染（Discourse markdown-it 预览）
+  /// OHOS：flutter_js 无原生库，但已自编 QuickJS（libohos_quickjs.so）
+  /// 并提供最小 eval 桥（lib/services/cook/ohos_quickjs.dart）。
+  static bool get supportsCookJs => true;
 
   /// 是否支持 native_animated_image（Rust 动图解码）
   /// OHOS：已交叉编译 libnative_animated_image_codec.so（GIF/APNG/动图 WebP）

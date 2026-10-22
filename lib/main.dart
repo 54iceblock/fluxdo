@@ -22,6 +22,7 @@ import 'widgets/ai/builtin_presets_factory.dart';
 import 'providers/message_bus_providers.dart';
 import 'providers/chat/chat_notification_alert_provider.dart';
 import 'services/auth_issue_notice_service.dart';
+import 'services/cook/ohos_quickjs.dart';
 import 'services/avif_ohos_codec.dart';
 import 'services/crash_context_reporter.dart';
 import 'providers/app_state_refresher.dart';
@@ -207,8 +208,7 @@ Future<void> _probeOhosAvifSupport() async {
   }
 }
 
-void _logAvifProbe(String result, String? detail) {
-  try {
+void _logAvifProbe(String result, String? detail) {  try {
     LogWriter.instance.write(<String, dynamic>{
       'level': result == 'ok' ? 'info' : 'warning',
       'type': 'image',
@@ -219,6 +219,71 @@ void _logAvifProbe(String result, String? detail) {
     });
   } catch (_) {
     // 日志失败不影响启动
+  }
+}
+
+/// QuickJS 能力探测（cook 渲染用）：执行小脚本，并试跑真实 cook bundle。
+Future<void> _probeOhosQuickJs() async {
+  final js = OhosQuickJs.create();
+  if (js == null) {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': 'warning',
+      'type': 'cook',
+      'event': 'ohos_quickjs_probe',
+      'result': 'error',
+      'error': 'libohos_quickjs.so 不可用',
+      'platform': 'ohos',
+    });
+    return;
+  }
+  try {
+    final res = js.evaluate('1+1');
+    LogWriter.instance.write(<String, dynamic>{
+      'level': res.isError ? 'warning' : 'info',
+      'type': 'cook',
+      'event': 'ohos_quickjs_probe',
+      'result': res.isError ? 'error' : 'ok',
+      'version': OhosQuickJs.version,
+      if (res.isError) 'error': res.error,
+      if (!res.isError) 'sample': res.result,
+      'platform': 'ohos',
+    });
+  } catch (e) {
+    debugPrint('[OhosQuickJs] 探测异常: $e');
+  }
+
+  // 端到端：真正 eval 一次 cook bundle（与 DiscourseCookService 热身同一份资源）
+  try {
+    final bundle = await rootBundle.loadString('assets/cook/discourse-cook.js');
+    final started = DateTime.now();
+    final res = js.evaluate(bundle);
+    final ms = DateTime.now().difference(started).inMilliseconds;
+    LogWriter.instance.write(<String, dynamic>{
+      'level': res.isError ? 'warning' : 'info',
+      'type': 'cook',
+      'event': 'cook_bundle_eval',
+      'result': res.isError ? 'error' : 'ok',
+      'bundleBytes': bundle.length,
+      'durationMs': ms,
+      if (res.isError) 'error': res.error,
+      if (!res.isError) 'resultLength': res.result?.length,
+      'platform': 'ohos',
+    });
+    // 验证上下文持久性：bundle 定义的全局在后续 eval 中应仍可见
+    final probeGlobal = js.evaluate('typeof __fluxdoCook');
+    LogWriter.instance.write(<String, dynamic>{
+      'level': probeGlobal.isError ? 'warning' : 'info',
+      'type': 'cook',
+      'event': 'cook_global_probe',
+      'result': probeGlobal.isError ? 'error' : 'ok',
+      if (probeGlobal.isError) 'error': probeGlobal.error,
+      if (!probeGlobal.isError) 'globalType': probeGlobal.result,
+      'platform': 'ohos',
+    });
+  } catch (e) {
+    debugPrint('[OhosQuickJs] cook bundle 探测异常: $e');
+  } finally {
+    js.dispose();
   }
 }
 
@@ -514,6 +579,7 @@ Future<void> main() async {
   // 结果只写日志，不阻塞启动。
   if (PlatformUtils.isOhos) {
     unawaited(_probeOhosAvifSupport());
+    unawaited(_probeOhosQuickJs());
   }
 
   // Windows 固定系统代理必须先于本地 DoH/WebView 网关读取，网关才能按
