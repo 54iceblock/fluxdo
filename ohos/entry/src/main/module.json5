@@ -21,6 +21,10 @@
         "startWindowIcon": "$media:icon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
+        // 后台保活：数据同步类长时任务（后台消息轮询用；单次最长约 10 分钟，可重复申请）
+        "backgroundModes": [
+          "dataTransfer"
+        ],
         "skills": [
           {
             "entities": [

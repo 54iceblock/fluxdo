@@ -19,6 +19,8 @@ export default class EntryAbility extends FlutterAbility {
     try {
       const plugins = flutterEngine.getPlugins();
       if (plugins != null) {
+        // 长时任务（后台保活）需要 UIAbilityContext，注册前先交给桥插件。
+        FluxdoBridgePlugin.abilityContext = this.context;
         plugins.add(new FluxdoBridgePlugin());
         hilog.info(DOMAIN, TAG, 'FluxdoBridgePlugin registered');
       } else {

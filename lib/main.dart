@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 
 import 'package:catcher_2/catcher_2.dart';
@@ -22,6 +22,7 @@ import 'widgets/ai/builtin_presets_factory.dart';
 import 'providers/message_bus_providers.dart';
 import 'providers/chat/chat_notification_alert_provider.dart';
 import 'services/auth_issue_notice_service.dart';
+import 'services/background/ohos_background_task.dart';
 import 'services/cook/ohos_quickjs.dart';
 import 'services/avif_ohos_codec.dart';
 import 'services/crash_context_reporter.dart';
@@ -284,6 +285,31 @@ Future<void> _probeOhosQuickJs() async {
     debugPrint('[OhosQuickJs] cook bundle 探测异常: $e');
   } finally {
     js.dispose();
+  }
+}
+
+/// 后台保活能力探测（仅 debug）：申请一次长时任务再立刻结束，确认桥与清单配置可用。
+Future<void> _probeOhosContinuousTask() async {
+  final task = OhosBackgroundTask.instance;
+  final started = await task.start();
+  _logBackgroundProbe(started ? 'started' : 'failed');
+  if (started) {
+    await task.stop();
+    _logBackgroundProbe('stopped');
+  }
+}
+
+void _logBackgroundProbe(String state) {
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': state == 'failed' ? 'warning' : 'info',
+      'type': 'background',
+      'event': 'ohos_continuous_task_probe',
+      'state': state,
+      'platform': 'ohos',
+    });
+  } catch (_) {
+    // 日志失败不影响启动
   }
 }
 
@@ -580,6 +606,9 @@ Future<void> main() async {
   if (PlatformUtils.isOhos) {
     unawaited(_probeOhosAvifSupport());
     unawaited(_probeOhosQuickJs());
+    if (kDebugMode) {
+      unawaited(_probeOhosContinuousTask());
+    }
   }
 
   // Windows 固定系统代理必须先于本地 DoH/WebView 网关读取，网关才能按
