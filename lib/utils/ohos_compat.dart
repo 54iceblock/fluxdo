@@ -16,8 +16,9 @@ class OhosCompat {
   static bool get isOhos => PlatformUtils.isOhos;
 
   /// 是否支持 Rust DOH 代理（core/doh_proxy）
-  /// OHOS：暂无原生实现，走系统 DNS + 直连。
-  static bool get supportsDohProxy => !isOhos;
+  /// OHOS：已交叉编译 libdoh_proxy.so（x86_64 / arm64-v8a）并打进 HAP 的 libs/<abi>/，
+  /// 运行时由 `DynamicLibrary.open('libdoh_proxy.so')` 加载（见 doh_proxy_ffi.dart）。
+  static bool get supportsDohProxy => true;
 
   /// 是否支持 rhttp（Rust reqwest / TLS 指纹）
   /// OHOS：暂无 FRB 平台加载器，强制关闭，回退 dio 默认适配器。
