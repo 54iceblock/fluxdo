@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../../utils/platform_utils.dart';
 import '../doh/ech_dns_policy.dart';
 
 class DohHostLookupResult {
@@ -347,6 +348,10 @@ class DohProxyFfi {
         return _loadWindowsLibrary();
       } else if (Platform.isMacOS) {
         return _loadMacOSLibrary();
+      } else if (PlatformUtils.isOhos) {
+        // HarmonyOS：交叉编译产物 libdoh_proxy.so 随 HAP 打包到 libs/<abi>/，
+        // 运行时按 SONAME 直接打开即可（NDK 交叉编译，见 docs/ohos-native-strategy.md）。
+        return DynamicLibrary.open('libdoh_proxy.so');
       } else if (Platform.isLinux) {
         return DynamicLibrary.open('libdoh_proxy.so');
       }
