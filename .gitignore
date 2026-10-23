@@ -111,3 +111,11 @@ linux/.ffmpeg-cache/
 packages/flutter_inappwebview_*/example/*/flutter/ephemeral/
 packages/flutter_inappwebview_windows/pubspec.lock
 packages/flutter_inappwebview_windows/example/pubspec.lock
+
+# OHOS ÒÀÀµÄ¿Â¼£¨¹¹½¨²úÎï£¬²»Ó¦Èë¿â£©
+oh_modules/
+**/oh_modules/
+# hvigor æ„å»ºæœŸç”Ÿæˆçš„åŒ…å…ƒæ•°æ®ï¼ˆéš buildMode å˜åŒ–ï¼Œä¸å…¥åº“ï¼‰
+packages/*/ohos/BuildProfile.ets
+packages/*/ohos/oh-package-lock.json5
+

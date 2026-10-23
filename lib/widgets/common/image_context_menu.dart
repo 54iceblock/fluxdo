@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:app_icons/app_icons.dart';
 import 'package:flutter/services.dart';
-import 'package:super_clipboard/super_clipboard.dart';
 import '../../l10n/s.dart';
+import '../../utils/clipboard_utils.dart';
 import '../../utils/image_save_utils.dart';
 import '../../utils/share_utils.dart';
 import '../../models/topic.dart';
@@ -449,6 +449,9 @@ class ImageContextMenu {
   }
 
   /// 复制图片到剪贴板
+  ///
+  /// OHOS 没有 super_clipboard 原生实现：降级为复制图片链接（纯文本），
+  /// 由 [ClipboardUtils] 按平台能力决定，避免取 SystemClipboard 时抛符号查找异常。
   static Future<void> _copyImage(String imageUrl) async {
     try {
       final bytes = await BlobImageCache.fetch(
@@ -459,15 +462,18 @@ class ImageContextMenu {
         ToastService.showError(S.current.image_fetchFailed);
         return;
       }
-      final clipboard = SystemClipboard.instance;
-      if (clipboard == null) {
+      final copiedImage = await ClipboardUtils.copyPngImage(
+        bytes,
+        fallbackText: imageUrl,
+      );
+      // 降级成功（复制了链接）与图片复制的文案不同，避免误导。
+      if (copiedImage) {
+        ToastService.showSuccess(S.current.image_copied);
+      } else if (ClipboardUtils.supportsRichClipboard) {
         ToastService.showError(S.current.common_clipboardUnavailable);
-        return;
+      } else {
+        ToastService.showSuccess(S.current.common_linkCopied);
       }
-      final item = DataWriterItem();
-      item.add(Formats.png(bytes));
-      await clipboard.write([item]);
-      ToastService.showSuccess(S.current.image_copied);
     } catch (e) {
       debugPrint('[ImageContextMenu] copyImage error: $e');
       ToastService.showError(S.current.image_copyFailed);

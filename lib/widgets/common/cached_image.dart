@@ -6,6 +6,7 @@ import 'package:native_animated_image/native_animated_image.dart'
 
 import '../../services/discourse_cache_manager.dart';
 import '../../services/sticker_thumbnail_provider.dart';
+import '../../utils/ohos_compat.dart';
 
 /// 统一的缓存网络图片组件
 ///
@@ -134,7 +135,7 @@ class CachedImage extends StatelessWidget {
     final lower = url.toLowerCase();
 
     // 完整 AVIF 动画(长按预览 / 大图):flutter_avif (libavif + dav1d) 解码
-    if (lower.endsWith('.avif')) {
+    if (OhosCompat.supportsAvif && lower.endsWith('.avif')) {
       return AvifImageProvider(url, bucket: bucket);
     }
 
@@ -145,9 +146,10 @@ class CachedImage extends StatelessWidget {
     // 即使 URL 后缀失真(`.gif/.webp` 实际是 AVIF bytes),Rust 端 AVIF
     // magic 现在返 UnsupportedFormat,触发 provider 内置 Flutter codec
     // fallback,不会再撞 zenavif crash。
-    if (lower.endsWith('.gif') ||
-        lower.endsWith('.webp') ||
-        lower.endsWith('.apng')) {
+    if (OhosCompat.supportsNativeAnimatedImage &&
+        (lower.endsWith('.gif') ||
+            lower.endsWith('.webp') ||
+            lower.endsWith('.apng'))) {
       return NativeAnimatedImageProvider.fromBytesProvider(
         loader: () => BlobImageCache.fetch(bucket, url, priority: priority),
         tag: url,

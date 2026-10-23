@@ -352,7 +352,10 @@ class _WebViewPageState extends ConsumerState<WebViewPage> {
                                 setState(() => _currentTitle = title);
                               }
                             },
-                            onDownloadStarting: (controller, request) {
+                            // OHOS 移植：inappwebview 6.1.5 把
+                            // onDownloadStarting(controller, request) 改名为
+                            // onDownloadStartRequest(controller, request) 且返回 void。
+                            onDownloadStartRequest: (controller, request) {
                               final url = request.url.toString();
                               ref
                                   .read(downloadProvider.notifier)
@@ -363,7 +366,6 @@ class _WebViewPageState extends ConsumerState<WebViewPage> {
                                     mimeType: request.mimeType,
                                     contentLength: request.contentLength,
                                   );
-                              return null;
                             },
                           ),
                           getController: () => _controller,

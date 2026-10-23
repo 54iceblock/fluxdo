@@ -1,10 +1,13 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:intl/intl.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../l10n/s.dart';
+import '../services/log/log_writer.dart';
+import 'platform_utils.dart';
 
 /// 时间工具类 - 统一处理时间格式化和时区转换
 class TimeUtils {
@@ -12,6 +15,12 @@ class TimeUtils {
 
   static String _localTimezone = 'UTC';
   static bool _tzInitialized = false;
+
+  /// 自研 OHOS 桥通道。
+  ///
+  /// ArkTS 实现见 `repo/ohos/entry/src/main/ets/plugins/FluxdoBridgePlugin.ets`，
+  /// 由 `EntryAbility.configureFlutterEngine()` 注册。
+  static const MethodChannel _ohosBridgeChannel = MethodChannel('com.fluxdo/ohos');
 
   /// 设备本地 IANA 时区名（如 "Asia/Shanghai"）
   ///
@@ -26,12 +35,88 @@ class TimeUtils {
     tzdata.initializeTimeZones();
     _tzInitialized = true;
     try {
-      final info = await FlutterTimezone.getLocalTimezone();
-      final name = info.identifier;
+      final name = await _resolveLocalTimezoneName();
+      if (name == null || name.isEmpty) {
+        throw StateError('时区标识为空');
+      }
       tz.setLocalLocation(tz.getLocation(name));
       _localTimezone = name;
+      debugPrint('[TimeUtils] 本地时区: $name');
+      _logTimezone('resolved', name, null);
     } catch (e) {
       debugPrint('[TimeUtils] 获取本地时区失败，回退 UTC: $e');
+      _logTimezone('fallback-utc', 'UTC', '$e');
+    }
+  }
+
+  /// 把时区解析结果落到应用日志（`files/flutter/logs/app_log.jsonl`）。
+  ///
+  /// Dart 的 `debugPrint` 在 HarmonyOS 上不会进 hilog，排查时区问题时只能靠落盘日志。
+  static void _logTimezone(String result, String timezone, String? error) {
+    try {
+      LogWriter.instance.write(<String, dynamic>{
+        'level': 'info',
+        'type': 'timezone',
+        'event': 'timezone_resolved',
+        'result': result,
+        'timezone': timezone,
+        'platform': PlatformUtils.isOhos ? 'ohos' : 'other',
+        if (error != null) 'error': error,
+      });
+    } catch (_) {
+      // 日志失败不影响主流程
+    }
+  }
+
+  /// 解析设备本地 IANA 时区名。
+  ///
+  /// - **OHOS**：`flutter_timezone` 没有 OHOS 原生实现，优先走自研 ArkTS 桥
+  ///   （`com.fluxdo/ohos#getLocalTimezone`，ArkTS 侧 `i18n.getTimeZone().getID()`）；
+  ///   桥未注册/失败/返回的名字不在 tz 数据库时，再退回 `FlutterTimezone` 的
+  ///   Dart API（其通道名 `flutter_timezone` 也已由同一个 ArkTS 桥顶替）。
+  /// - **其他平台**：原逻辑不变，直接 `FlutterTimezone.getLocalTimezone()`。
+  ///
+  /// 返回 null 表示所有途径都失败，调用方回退 UTC。
+  static Future<String?> _resolveLocalTimezoneName() async {
+    if (PlatformUtils.isOhos) {
+      final bridged = await _getBridgedTimezone();
+      if (bridged != null && _isKnownTimezone(bridged)) {
+        return bridged;
+      }
+    }
+    final info = await FlutterTimezone.getLocalTimezone();
+    final identifier = info.identifier;
+    if (!_isKnownTimezone(identifier)) {
+      throw StateError('未知时区标识: $identifier');
+    }
+    return identifier;
+  }
+
+  /// 调用自研 OHOS 桥拿时区；任何失败都返回 null（由调用方走下一级回退）。
+  static Future<String?> _getBridgedTimezone() async {
+    try {
+      final name = await _ohosBridgeChannel.invokeMethod<String>(
+        'getLocalTimezone',
+      );
+      if (name == null) return null;
+      final trimmed = name.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    } on MissingPluginException catch (e) {
+      debugPrint('[TimeUtils] OHOS 时区桥未注册: $e');
+      return null;
+    } catch (e) {
+      debugPrint('[TimeUtils] OHOS 时区桥调用失败: $e');
+      return null;
+    }
+  }
+
+  /// 名字是否在本地 tz 数据库里（`latest_all` 已初始化）。
+  static bool _isKnownTimezone(String name) {
+    try {
+      tz.getLocation(name);
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 

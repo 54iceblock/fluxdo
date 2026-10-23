@@ -3,16 +3,15 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  app_links_linux
   audioplayers_linux
   dynamic_color
   file_selector_linux
   flutter_acrylic
   flutter_avif_linux
-  flutter_inappwebview_linux
   flutter_js
   flutter_secure_storage_linux
   flutter_timezone
-  gtk
   irondash_engine_context
   media_kit_libs_linux
   media_kit_video

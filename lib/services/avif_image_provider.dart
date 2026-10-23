@@ -1,11 +1,14 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_avif/flutter_avif.dart' as fa;
 import '../l10n/s.dart';
+import '../utils/platform_utils.dart';
 import '../utils/scroll_busy_signal.dart';
 import 'avif_fast_bridge.dart';
+import 'avif_ohos_codec.dart';
 import 'blob_image_cache.dart';
 
 /// 限制并发 AVIF 解码数(thumbnail batch 场景)。
@@ -37,6 +40,18 @@ bool _avifPlatformCodecUnavailable = false;
 /// 要在主 isolate 上做 protobuf 解析拷贝 + `Uint8List.fromList` +
 /// `decodeImageFromPixels` 三次 MB 级搬运,静态大图首次解码卡顿的大头在此。
 Future<ui.Codec?> _tryPlatformAvifCodec(Uint8List bytes, {int? maxDim}) async {
+  final engineCodec = await _tryEngineAvifCodec(bytes, maxDim: maxDim);
+  if (engineCodec != null) return engineCodec;
+  // HarmonyOS：引擎（Skia）不带 AVIF 解码器，但系统 ImageKit 支持，
+  // 走自研 ArkTS 桥解码为 RGBA 再构造成引擎可用的 codec。
+  if (PlatformUtils.isOhos) {
+    return _tryOhosAvifCodec(bytes, maxDim: maxDim);
+  }
+  return null;
+}
+
+/// 用引擎内置 codec（ImageIO / ImageDecoder / Skia）解 AVIF。
+Future<ui.Codec?> _tryEngineAvifCodec(Uint8List bytes, {int? maxDim}) async {
   ui.ImmutableBuffer? buffer;
   try {
     buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
@@ -62,6 +77,79 @@ Future<ui.Codec?> _tryPlatformAvifCodec(Uint8List bytes, {int? maxDim}) async {
     return null;
   } finally {
     buffer?.dispose();
+  }
+}
+
+/// HarmonyOS 专用：通过 ArkTS 桥调用系统 ImageKit 解 AVIF，得到 RGBA 原始像素后
+/// 用 [ui.ImageDescriptor.raw] 构造引擎 codec。
+///
+/// 这样 AVIF 能与引擎内建格式走同一条渲染/缓存链路（`AvifImageProvider`
+/// 里 `_PlatformAvifCodec` 会把它适配成 `fa.AvifCodec`）。
+/// 动画 AVIF 只取首帧（ImageKit 的静态解码路径）。
+const MethodChannel _ohosAvifChannel = MethodChannel('com.fluxdo/ohos');
+
+Future<ui.Codec?> _tryOhosAvifCodec(Uint8List bytes, {int? maxDim}) async {
+  // 首选：自编 libavif + dav1d（libohos_avif.so，随 HAP 打包）。
+  final native = OhosAvifCodec.instance.decode(bytes, maxDim: maxDim);
+  if (native != null) {
+    try {
+      final buffer = await ui.ImmutableBuffer.fromUint8List(native.rgba);
+      final descriptor = ui.ImageDescriptor.raw(
+        buffer,
+        width: native.width,
+        height: native.height,
+        rowBytes: native.width * 4,
+        pixelFormat: ui.PixelFormat.rgba8888,
+      );
+      return await descriptor.instantiateCodec();
+    } catch (e) {
+      debugPrint('[Avif] OHOS 原生解码结果转 codec 失败: $e');
+    }
+  }
+  // 兜底：系统 ImageKit（实测多数设备只能解析容器头，解码会失败）
+  return _tryOhosAvifCodecViaImageKit(bytes, maxDim: maxDim);
+}
+
+/// 走 ArkTS 桥、由系统 ImageKit 解码（兜底路径）。
+Future<ui.Codec?> _tryOhosAvifCodecViaImageKit(
+  Uint8List bytes, {
+  int? maxDim,
+}) async {
+  try {
+    final res = await _ohosAvifChannel.invokeMethod<Map<Object?, Object?>>(
+      'decodeAvif',
+      <String, Object>{
+        'bytes': bytes,
+        if (maxDim != null && maxDim > 0) 'maxDim': maxDim,
+      },
+    );
+    if (res == null) return null;
+    final width = res['width'] as int?;
+    final height = res['height'] as int?;
+    final raw = res['bytes'];
+    if (width == null || height == null || raw == null) return null;
+    final Uint8List rgba = raw is Uint8List
+        ? raw
+        : Uint8List.fromList(List<int>.from(raw as List<Object?>));
+    if (rgba.length < width * height * 4) {
+      debugPrint(
+        '[Avif] OHOS 解码像素长度不足: ${rgba.length} < ${width * height * 4}',
+      );
+      return null;
+    }
+    final rowBytes = (res['rowBytes'] as int?) ?? width * 4;
+    final buffer = await ui.ImmutableBuffer.fromUint8List(rgba);
+    final descriptor = ui.ImageDescriptor.raw(
+      buffer,
+      width: width,
+      height: height,
+      rowBytes: rowBytes,
+      pixelFormat: ui.PixelFormat.rgba8888,
+    );
+    return await descriptor.instantiateCodec();
+  } catch (e) {
+    debugPrint('[Avif] OHOS ImageKit 解码失败: $e');
+    return null;
   }
 }
 

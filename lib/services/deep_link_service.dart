@@ -7,6 +7,7 @@ import '../pages/webview_login_page.dart';
 import '../pages/webview_page.dart';
 import '../constants.dart';
 import '../utils/discourse_url_parser.dart';
+import '../utils/platform_utils.dart';
 import 'discourse/discourse_service.dart';
 import 'user_api_key_login_flow.dart';
 import 'user_api_key_service.dart';
@@ -41,8 +42,15 @@ class DeepLinkService {
     // 处理应用冷启动时的链接
     _handleInitialLink();
 
-    // 监听后续链接
-    _linkSubscription = _appLinks.uriLinkStream.listen(_handleLink);
+    // 监听后续链接（热启动 onNewWant / 系统分发）
+    _linkSubscription = _appLinks.uriLinkStream.listen(
+      _handleLink,
+      onError: (Object e) {
+        // OHOS：app_links 的 AbilityAware 绑定 / 事件通道在异常情况下可能报错，
+        // 这里兜住，绝不让深链通道的异常影响启动链路。
+        debugPrint('DeepLinkService: 链接流错误: $e');
+      },
+    );
   }
 
   /// 更新导航 context
@@ -51,16 +59,30 @@ class DeepLinkService {
   }
 
   /// 处理初始链接（冷启动）
+  ///
+  /// HarmonyOS 说明：`module.json5` 的 skills 已声明 `fluxdo://` / `discourse://`，
+  /// app_links 的 CPF OHOS fork 在 `onAttachedToAbility` 里读 `ability.launchWant.uri`
+  /// 作为 initialLink（见 AppLinksPlugin.ets）。Ability 绑定与 Dart 首帧之间
+  /// 可能有先后差，OHOS 上做一次短重试，其他平台保持原有单次查询行为。
   Future<void> _handleInitialLink() async {
-    try {
-      final uri = await _appLinks.getInitialLink();
-      if (uri != null) {
-        // 延迟处理，确保导航 context 已就绪
-        await Future.delayed(const Duration(milliseconds: 500));
-        _handleLink(uri);
+    final attempts = PlatformUtils.isOhos ? 5 : 1;
+    for (var i = 0; i < attempts; i++) {
+      try {
+        final uri = await _appLinks.getInitialLink();
+        if (uri != null) {
+          debugPrint('DeepLinkService: 冷启动链接 $uri');
+          // 延迟处理，确保导航 context 已就绪
+          await Future.delayed(const Duration(milliseconds: 500));
+          _handleLink(uri);
+          return;
+        }
+      } catch (e) {
+        debugPrint('DeepLinkService: 获取初始链接失败: $e');
+        return;
       }
-    } catch (e) {
-      debugPrint('DeepLinkService: 获取初始链接失败: $e');
+      if (i < attempts - 1) {
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
     }
   }
 

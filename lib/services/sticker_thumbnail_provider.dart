@@ -10,6 +10,7 @@ import 'package:native_animated_image/native_animated_image.dart'
 import 'avif_image_provider.dart';
 import 'blob_image_cache.dart';
 import 'dio_http_client.dart';
+import '../utils/ohos_compat.dart';
 
 // 与 native_animated_image 内部定义的错误码保持一致(Rust 端 ERR_UNSUPPORTED = -2),
 // dart 端没单独 export 这个常量,我们直接复用数字 — 这是 stable FFI contract。
@@ -100,7 +101,11 @@ class StickerThumbnailProvider extends ImageProvider<StickerThumbnailProvider> {
 
   /// URL 是否走得通这个 provider(AVIF / GIF / animated WebP / APNG)。
   /// 静态图(PNG/JPEG)和其它格式应该走 `CachedNetworkImageProvider`。
+  ///
+  /// HarmonyOS：首帧解码依赖 native_animated_image（Rust），OHOS 上无原生库，
+  /// 直接返回 false，让上层退回引擎内建解码路径（首帧静态显示）。
   static bool supports(String url) {
+    if (OhosCompat.isOhos) return false;
     try {
       final path = Uri.parse(url).path.toLowerCase();
       return path.endsWith('.avif') ||

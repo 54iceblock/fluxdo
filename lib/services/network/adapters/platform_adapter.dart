@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -11,6 +12,7 @@ import '../rhttp/rhttp_settings_service.dart';
 import '../system_proxy_service.dart';
 import '../flux_request_spec.dart';
 import '../webview/webview_adapter_settings_service.dart';
+import '../../../utils/platform_utils.dart';
 import 'adapter_log_metadata.dart';
 import 'cronet_fallback_service.dart';
 import 'network_http_adapter.dart';
@@ -319,6 +321,14 @@ class _GatewayAdapterWrapper implements HttpClientAdapter {
     return _webViewAdapter ??= WebViewHttpAdapter();
   }
 
+  /// HarmonyOS：WebView 栈单次 fetch 的硬上限。
+  ///
+  /// 第 3 轮回归实测过 WebViewAdapter 在 OHOS 上会挂死（JS fetch 结果回不到
+  /// Dart）。这里在传输层再加一道上限：超时/异常时**回退原生 dio**，并关闭
+  /// 本次会话的强制浏览器栈开关，保证冷启动绝不会被吊死（原生会 403，但会
+  /// 进入 CF 验证流程，最终仍能出数据）。
+  static const Duration _ohosWebViewFetchTimeout = Duration(seconds: 12);
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -327,7 +337,36 @@ class _GatewayAdapterWrapper implements HttpClientAdapter {
   ) async {
     // WebView 适配器：主域名 API 请求走 WebView 内核（真正的浏览器 TLS 指纹）
     if (_shouldUseWebView(options)) {
-      return _getWebViewAdapter().fetch(options, requestStream, cancelFuture);
+      final adapter = _getWebViewAdapter();
+      if (!PlatformUtils.isOhos) {
+        return adapter.fetch(options, requestStream, cancelFuture);
+      }
+      try {
+        return await adapter
+            .fetch(options, requestStream, cancelFuture)
+            .timeout(
+              _ohosWebViewFetchTimeout,
+              onTimeout: () => throw TimeoutException(
+                'OHOS webview fetch timeout '
+                '(${_ohosWebViewFetchTimeout.inSeconds}s)',
+              ),
+            );
+      } on TimeoutException catch (e) {
+        // 挂死（第 3 轮回归那种）：回退原生，并关掉本次会话的强制开关，
+        // 避免后续每个请求都白等 12s。
+        debugPrint(
+          '[WebViewAdapter][OHOS] fetch 超时，回退原生并关闭强制浏览器栈: $e',
+        );
+        WebViewAdapterSettingsService.instance.applyOhosForceTransport(false);
+        try {
+          adapter.close(force: true);
+        } catch (_) {}
+        return _inner.fetch(options, requestStream, cancelFuture);
+      } catch (e) {
+        // 其它异常（JS 报错 / 桥不可用等）：只本次回退原生，保留强制开关。
+        debugPrint('[WebViewAdapter][OHOS] fetch 失败，本次回退原生: $e');
+        return _inner.fetch(options, requestStream, cancelFuture);
+      }
     }
 
     final settings = NetworkSettingsService.instance;
@@ -398,6 +437,13 @@ class _GatewayAdapterWrapper implements HttpClientAdapter {
   }
 
   bool _shouldUseWebView(RequestOptions options) {
+    // HarmonyOS 回归说明（2026-10-21 第 3 轮 → 第 4 轮）：
+    // 曾经让「主站 GET 从第一个请求起就走浏览器栈」以避免冷启动 403 弹浮层，
+    // 但实测 headless WebView 的 JS fetch 响应回不到 Dart（请求挂死 70s+），
+    // 冷启动直接卡在启动页。已回退为第 2 轮行为：**dio 先请求 → 403 →
+    // 再由 CfChallengeInterceptor 用浏览器网络栈重放**（已验证能出数据）。
+    // 浮层体验问题由 cf_challenge_service / cf_challenge_interceptor 的
+    // 自动关闭 + 自愈轮询解决，不再改传输层优先级。
     if (!WebViewAdapterSettingsService.instance.effectiveEnabled) {
       return false;
     }
@@ -446,9 +492,19 @@ bool requestCanUseWebViewAdapter(RequestOptions options) {
     options.headers,
     'X-Requested-With',
   );
+
+  // HarmonyOS：CF 的 cf_clearance 是 HttpOnly cookie，ArkWeb 只有
+  // `WebCookieManager.fetchCookieSync(url)` 一个读出口，原生 dio 侧永远拿不到它
+  // → 主站请求必然 403。而 WebView 内核（ArkWeb）自己带这枚 cookie，所以
+  // OHOS 上必须放宽「只接管 JSON/XHR」的限制，允许把首页预加载这类
+  // HTML 导航请求也交给 WebView 适配器，否则 CF 兜底在 OHOS 上永远不生效
+  // （实测：PreloadedData 的 GET https://linux.do Accept: text/html 被这里
+  // 直接判 false，导致「自动切浏览器网络栈」分支压根没进入）。
+  final ohosAllowNavigationFetch = PlatformUtils.isOhos;
+
   final explicitlyHtml =
       accept.contains('text/html') || accept.contains('application/xhtml+xml');
-  if (explicitlyHtml) {
+  if (explicitlyHtml && !ohosAllowNavigationFetch) {
     return false;
   }
   final apiLikeGet =
@@ -456,7 +512,9 @@ bool requestCanUseWebViewAdapter(RequestOptions options) {
       uri.path.endsWith('.json') ||
       accept.contains('application/json') ||
       accept.contains('text/javascript');
-  if ((method == 'GET' || method == 'HEAD') && !apiLikeGet) {
+  if ((method == 'GET' || method == 'HEAD') &&
+      !apiLikeGet &&
+      !ohosAllowNavigationFetch) {
     return false;
   }
 

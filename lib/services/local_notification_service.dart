@@ -4,6 +4,7 @@ import '../l10n/s.dart';
 import '../pages/chat/channel/chat_channel_page.dart';
 import '../pages/topic_detail_page/topic_detail_page.dart';
 import '../utils/notification_navigation.dart';
+import '../utils/platform_utils.dart';
 
 /// 全局 NavigatorKey，用于通知点击时导航
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -39,6 +40,11 @@ class LocalNotificationService {
       appUserModelId: 'Com.FluxDO.FluxDO',
       guid: 'e965ef8c-b676-47c1-b6e7-297d63942974',
     );
+    // OHOS：flutter_local_notifications 22.x 在 OHOS 平台强制要求
+    // `InitializationSettings.ohos` 非空（否则 initialize 直接抛 ArgumentError）。
+    // defaultIcon 是 entry HAP 里的 media 资源名，这里用 module.json5 的
+    // `$media:icon`（entry/src/main/resources/base/media/icon.png）。
+    const ohosSettings = OhosInitializationSettings('icon');
 
     const settings = InitializationSettings(
       android: androidSettings,
@@ -46,6 +52,7 @@ class LocalNotificationService {
       macOS: darwinSettings,
       linux: linuxSettings,
       windows: windowsSettings,
+      ohos: ohosSettings,
     );
 
     await _plugin.initialize(
@@ -55,7 +62,7 @@ class LocalNotificationService {
     _initialized = true;
     debugPrint('[LocalNotification] 初始化完成');
     
-    // 请求通知权限 (Android 13+)
+    // 请求通知权限（Android 13+ / OHOS 系统通知授权）
     await _requestPermission();
   }
 
@@ -113,17 +120,35 @@ class LocalNotificationService {
 
   /// 请求通知权限
   Future<void> _requestPermission() async {
-    // Android 平台请求权限
+    // Android 13+ 需要运行时通知权限
     final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     if (androidPlugin != null) {
       final granted = await androidPlugin.requestNotificationsPermission();
       _permissionGranted = granted ?? false;
       debugPrint('[LocalNotification] Android 权限: $_permissionGranted');
-    } else {
-      // 非 Android 平台默认已授权
-      _permissionGranted = true;
+      return;
     }
+
+    // HarmonyOS：弹系统「允许通知」授权框（notificationManager.requestEnableNotification）。
+    // 失败（例如 Ability 尚未绑定）时按已授权继续 —— 真正的 publish 仍会由
+    // 系统拦截并给出结果，不能让通知链路因为一次权限查询失败而整体静默。
+    final ohosPlugin = _plugin.resolvePlatformSpecificImplementation<
+        OhosFlutterLocalNotificationsPlugin>();
+    if (ohosPlugin != null) {
+      try {
+        final granted = await ohosPlugin.requestNotificationsPermission();
+        _permissionGranted = granted ?? true;
+      } catch (e) {
+        debugPrint('[LocalNotification] OHOS 权限请求失败，按已授权继续: $e');
+        _permissionGranted = true;
+      }
+      debugPrint('[LocalNotification] OHOS 权限: $_permissionGranted');
+      return;
+    }
+
+    // 其余平台默认已授权
+    _permissionGranted = true;
   }
 
   /// 显示通知
@@ -155,11 +180,20 @@ class LocalNotificationService {
 
     const darwinDetails = DarwinNotificationDetails();
 
+    // OHOS 侧必须给 OhosNotificationDetails（slotType 决定通知渠道归类）。
+    final ohosDetails = OhosNotificationDetails(
+      OhosNotificationSlotType.SOCIAL_COMMUNICATION,
+      slotDesc: S.current.notification_channelDiscourseDesc,
+      importance: OhosImportance.high,
+      autoCancel: true,
+    );
+
     final details = NotificationDetails(
       android: androidDetails,
       iOS: darwinDetails,
       macOS: darwinDetails,
       windows: const WindowsNotificationDetails(),
+      ohos: ohosDetails,
     );
 
     final notificationId = id ?? DateTime.now().millisecondsSinceEpoch.remainder(100000);
@@ -177,8 +211,14 @@ class LocalNotificationService {
           : '$prefix:$topicId';
     }
     
-    await _plugin.show(id: notificationId, title: title, body: body, notificationDetails: details, payload: payload);
-    debugPrint('[LocalNotification] 已发送: $title, payload=$payload');
+    try {
+      await _plugin.show(id: notificationId, title: title, body: body, notificationDetails: details, payload: payload);
+      debugPrint('[LocalNotification] 已发送: $title, payload=$payload');
+    } catch (e) {
+      // OHOS：系统未授权/通知被禁用时 publish 会抛 PlatformException，
+      // 通知失败不应影响业务调用方（MessageBus / 聊天提醒）。
+      debugPrint('[LocalNotification] 发布通知失败: $e');
+    }
   }
 
   /// 显示 APK 下载进度通知（持续更新同一条）。
@@ -191,6 +231,13 @@ class LocalNotificationService {
     bool indeterminate = false,
     int id = apkUpdateNotificationId,
   }) async {
+    // HarmonyOS：不支持应用内更新安装（三方应用不能静默装 HAP），
+    // 且下载进度通知依赖 OHOS 的 Download 模板（部分设备 isSupportTemplate
+    // 返回 false，插件会抛错），所以整条链路直接跳过。
+    if (PlatformUtils.isOhos) {
+      debugPrint('[LocalNotification] OHOS 跳过 APK 下载进度通知: $title');
+      return;
+    }
     if (!_initialized) {
       await initialize();
     }
@@ -213,13 +260,28 @@ class LocalNotificationService {
       enableVibration: false,
     );
 
-    final details = NotificationDetails(android: androidDetails);
-    await _plugin.show(
-      id: id,
-      title: title,
-      body: body,
-      notificationDetails: details,
+    final details = NotificationDetails(
+      android: androidDetails,
+      ohos: OhosNotificationDetails(
+        OhosNotificationSlotType.SERVICE_INFORMATION,
+        slotDesc: S.current.update_notification_channelDesc,
+        importance: OhosImportance.low,
+        ongoing: true,
+        onlyAlertOnce: true,
+        playSound: false,
+        enableVibration: false,
+      ),
     );
+    try {
+      await _plugin.show(
+        id: id,
+        title: title,
+        body: body,
+        notificationDetails: details,
+      );
+    } catch (e) {
+      debugPrint('[LocalNotification] 发布进度通知失败（已跳过）: $e');
+    }
   }
 
   /// 显示 APK 下载完成通知（点击触发安装由 ota_update 自行发起 intent，
@@ -243,13 +305,25 @@ class LocalNotificationService {
       autoCancel: true,
     );
 
-    final details = NotificationDetails(android: androidDetails);
-    await _plugin.show(
-      id: id,
-      title: title,
-      body: body,
-      notificationDetails: details,
+    final details = NotificationDetails(
+      android: androidDetails,
+      ohos: OhosNotificationDetails(
+        OhosNotificationSlotType.SERVICE_INFORMATION,
+        slotDesc: S.current.update_notification_channelDesc,
+        importance: OhosImportance.high,
+        autoCancel: true,
+      ),
     );
+    try {
+      await _plugin.show(
+        id: id,
+        title: title,
+        body: body,
+        notificationDetails: details,
+      );
+    } catch (e) {
+      debugPrint('[LocalNotification] 发布完成通知失败: $e');
+    }
   }
 
   /// 取消指定通知

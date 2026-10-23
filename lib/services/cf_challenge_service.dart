@@ -21,6 +21,7 @@ import 'windows_webview_environment_service.dart';
 import '../l10n/s.dart';
 import '../providers/preferences_provider.dart';
 import '../utils/blur_config.dart';
+import '../utils/platform_utils.dart';
 import '../widgets/draggable_floating_pill.dart';
 
 CookieManager get _cfCookieManager =>
@@ -142,6 +143,26 @@ class CfChallengeService {
   BuildContext? _context;
   static DateTime? _lastToastAt;
   Future<bool>? _activeSessionCompatPrompt;
+
+  /// 当前正在展示的验证页 State（与 _CfChallengePageState 同库，直接持有）。
+  ///
+  /// 用于「dio 侧已经用浏览器网络栈把请求做成」时主动结束验证并关闭浮层，
+  /// 避免用户必须先点「退出」再点页面「重试连接」两步才能恢复。
+  _CfChallengePageState? _activePageState;
+
+  /// 外部已通过浏览器网络栈完成请求：主动结束/关闭正在展示的验证浮层。
+  ///
+  /// 返回 true 表示确实关闭了一个仍在展示的浮层。
+  bool dismissActiveVerificationAsSuccess({String reason = 'external'}) {
+    final state = _activePageState;
+    if (state == null || !state.mounted || state._hasPopped) return false;
+    debugPrint('[CfChallenge][OHOS] 兜底成功，自动关闭浮层（reason=$reason）');
+    CfChallengeLogger.log(
+      '[VERIFY][OHOS] external browser stack success, closing overlay: $reason',
+    );
+    state.finishExternallyAsSuccess();
+    return true;
+  }
 
   /// 上次拒绝「切兼容」的时刻;超过 [_sessionCompatDeclineTtl] 后可再问。
   DateTime? _sessionCompatDeclinedAt;
@@ -880,7 +901,18 @@ class _CfChallengePageState extends State<CfChallengePage> {
     super.initState();
     _isBackground = widget.startInBackground;
     _needsManualAttention = false;
+    // 登记到 service，供 dio 兜底成功时主动关闭本浮层。
+    CfChallengeService()._activePageState = this;
     _snapshotInitialClearance();
+  }
+
+  /// 外部（dio 浏览器网络栈）已把请求做成：直接按「到源站」结束验证并
+  /// 关闭浮层（复用正常收场路径：清理 Overlay / 同步 cookie / 放行路由）。
+  void finishExternallyAsSuccess() {
+    if (_hasPopped || _finishingFromVerifyResponse) return;
+    _finishFromOriginResponse(
+      reason: 'external browser stack replay succeeded',
+    );
   }
 
   /// 记录本轮开始前 jar 与 WebView 中可见的旧值。两者可能不同，不能只
@@ -927,6 +959,12 @@ class _CfChallengePageState extends State<CfChallengePage> {
     _noChallengeCheckTimer?.cancel();
     _loadStopFallbackTimer?.cancel();
     _pageReadyFallbackTimer?.cancel();
+    _cancelOriginFallbackRecheck();
+    // 注销登记，避免 service 持有已销毁的 State。
+    final service = CfChallengeService();
+    if (identical(service._activePageState, this)) {
+      service._activePageState = null;
+    }
     // InAppWebView 自身会随 Widget 销毁平台 Controller；这里再次手动
     // dispose 会让 Windows 插件对同一个原生对象执行双重释放。
     _controller = null;
@@ -978,6 +1016,29 @@ class _CfChallengePageState extends State<CfChallengePage> {
         debugPrint(
           '[CfChallenge] Linux getAllCookies fallback 读取 $name 失败: $e',
         );
+      }
+    }
+
+    // HarmonyOS：插件 getCookie() 内部同样是 getCookies(url) 过滤，而且
+    // OHOS 的 CookieManager 没有实现 getAllCookies()（platform interface
+    // 默认抛 UnimplementedError），所以这里直接用 getCookies(url:) 自己扫。
+    // 另外 ArkWeb 的 fetchCookieSync(url) 按 URL 过滤，验证页当前 URL 是
+    // /challenge（深层路径），根路径 cookie（cf_clearance 是 Path=/）有读不到
+    // 的风险，这里再按站点根 URL 扫一次兜底。
+    if (PlatformUtils.isOhos) {
+      final urls = <String>{
+        widget.verifyUrl,
+        AppConstants.baseUrl,
+      };
+      for (final url in urls) {
+        try {
+          final cookies = await _cfCookieManager.getCookies(url: WebUri(url));
+          for (final c in cookies) {
+            if (c.name == name && c.value.isNotEmpty) return c.value;
+          }
+        } catch (e) {
+          debugPrint('[CfChallenge][OHOS] getCookies($url) 读取 $name 失败: $e');
+        }
       }
     }
 
@@ -1379,6 +1440,26 @@ class _CfChallengePageState extends State<CfChallengePage> {
               : _noChallengeProbeTimeout)) {
         if (_hasPopped || !mounted || _finishingFromVerifyResponse) return;
         if (!isCompletionProbe && generation != _loadGeneration) return;
+
+        // HarmonyOS 优先判据：CF 挑战通过后一定会写 cf_clearance 到 ArkWeb
+        // 的 cookie store，这比「DOM 是否已经落到源站文档」可靠得多。
+        // 实测 OHOS 上 CF 过盾后会先跳一次中间页/空白页，DOM 探测窗口内拿不到
+        // 源站文档 → 浮层卡在「当前没有需要完成的安全验证」不消失。这里先看
+        // cookie：有 clearance 就直接收场，不再依赖 DOM。
+        if (PlatformUtils.isOhos) {
+          final clearance = await _readCookieValue('cf_clearance');
+          if (clearance != null && clearance.isNotEmpty) {
+            debugPrint(
+              '[CfChallenge][OHOS] 探测到 ArkWeb 已有 cf_clearance'
+              '（${clearance.length} chars），判定挑战已通过',
+            );
+            _finishFromOriginResponse(
+              reason: 'ArkWeb cf_clearance present after challenge',
+            );
+            return;
+          }
+        }
+
         final controller = _controller;
         if (controller != null && await _hasLoadedOriginDocument(controller)) {
           _finishFromOriginResponse(
@@ -1409,6 +1490,11 @@ class _CfChallengePageState extends State<CfChallengePage> {
           _originFallbackNeedsAction = true;
           _needsManualAttention = false;
         });
+        // 自愈：CF 过盾后常先跳一次中间页/空白页，探测窗口内拿不到源站
+        // 文档就会停在这个「当前没有需要完成的安全验证」浮层上；这里继续
+        // 周期重探，页面落到源站文档即自动收场（否则用户点「重新尝试
+        // 验证」也只是重载到同一状态，浮层永远不消失）。
+        _startOriginFallbackRecheck();
       }
     } catch (e) {
       debugPrint('[CfChallenge] 处理 fallback 异常: $e');
@@ -1451,6 +1537,20 @@ class _CfChallengePageState extends State<CfChallengePage> {
     }
     _polling = true;
     try {
+      // HarmonyOS 优先判据：挑战通过后 CF 一定会写 cf_clearance 到 ArkWeb
+      // 的 cookie store。OHOS 上「DOM 已到源站」这条信号常常拿不到（过盾后
+      // 先跳中间页），所以每秒轮询时先看 cookie，命中即收场。
+      if (PlatformUtils.isOhos) {
+        final clearance = await _readCookieValue('cf_clearance');
+        if (clearance != null && clearance.isNotEmpty) {
+          debugPrint(
+            '[CfChallenge][OHOS] 轮询发现 ArkWeb 已有 cf_clearance'
+            '（${clearance.length} chars），自动收场',
+          );
+          _finishFromOriginResponse(reason: 'polling found cf_clearance');
+          return;
+        }
+      }
       final controller = _controller;
       if (controller != null && await _hasLoadedOriginDocument(controller)) {
         _finishFromOriginResponse(
@@ -1462,6 +1562,87 @@ class _CfChallengePageState extends State<CfChallengePage> {
     } finally {
       _polling = false;
     }
+  }
+
+  /// 「当前没有需要完成的安全验证」状态下的自愈轮询。
+  ///
+  /// 该状态是 `_handleVerifyOriginFallback` 探测超时后的兜底 UI：CF 过盾后
+  /// 会先跳一次 about:blank / 中间页，探测窗口（1.8s / 8s）内可能拿不到源站
+  /// 文档（OHOS 上实测会这样），浮层于是停在 noChallenge，用户点「重新尝试
+  /// 验证」也只是重载到同一状态，永远不消失。
+  ///
+  /// 这里周期性重探：页面一旦真的落到源站文档就按成功收场，浮层自动关闭。
+  Timer? _originFallbackRecheckTimer;
+  int _originFallbackRecheckGeneration = 0;
+  static const Duration _originFallbackRecheckInterval = Duration(
+    milliseconds: 1500,
+  );
+  static const int _originFallbackRecheckMaxAttempts = 24;
+
+  void _startOriginFallbackRecheck() {
+    _originFallbackRecheckTimer?.cancel();
+    final generation = ++_originFallbackRecheckGeneration;
+    var attempts = 0;
+    _originFallbackRecheckTimer = Timer.periodic(
+      _originFallbackRecheckInterval,
+      (timer) async {
+        if (_hasPopped || !mounted || _finishingFromVerifyResponse) {
+          timer.cancel();
+          return;
+        }
+        if (generation != _originFallbackRecheckGeneration) {
+          timer.cancel();
+          return;
+        }
+        if (!_originFallbackNeedsAction) {
+          timer.cancel();
+          return;
+        }
+        if (++attempts > _originFallbackRecheckMaxAttempts) {
+          timer.cancel();
+          return;
+        }
+        final controller = _controller;
+        if (controller == null) return;
+        try {
+          // HarmonyOS 优先判据：ArkWeb 的 cookie store 里出现 cf_clearance
+          // 就说明挑战已经通过（比 DOM 探测可靠，见 _handleVerifyOriginFallback
+          // 内同款注释）。这是「浮层卡在 noChallenge 不消失」的主要自愈路径。
+          if (PlatformUtils.isOhos) {
+            final clearance = await _readCookieValue('cf_clearance');
+            if (clearance != null && clearance.isNotEmpty) {
+              timer.cancel();
+              debugPrint(
+                '[CfChallenge][OHOS] 浮层自愈：ArkWeb 已有 cf_clearance'
+                '（${clearance.length} chars），自动收场（attempt=$attempts）',
+              );
+              _finishFromOriginResponse(
+                reason: 'origin fallback recheck found cf_clearance',
+              );
+              return;
+            }
+          }
+          if (await _hasLoadedOriginDocument(controller)) {
+            timer.cancel();
+            debugPrint(
+              '[CfChallenge][OHOS] 浮层自愈：页面已落到源站文档，自动收场'
+              '（attempt=$attempts）',
+            );
+            _finishFromOriginResponse(
+              reason: 'origin fallback recheck reached origin',
+            );
+          }
+        } catch (_) {
+          // 导航窗口期 evaluate 失败，下一轮再试。
+        }
+      },
+    );
+  }
+
+  void _cancelOriginFallbackRecheck() {
+    _originFallbackRecheckTimer?.cancel();
+    _originFallbackRecheckTimer = null;
+    _originFallbackRecheckGeneration++;
   }
 
   // ---------------------------------------------------------------------------
@@ -1495,6 +1676,7 @@ class _CfChallengePageState extends State<CfChallengePage> {
     _noChallengeCheckTimer?.cancel();
     _loadStopFallbackTimer?.cancel();
     _pageReadyFallbackTimer?.cancel();
+    _cancelOriginFallbackRecheck();
     _challengeRevealProbeGeneration++;
     _hasMarkedPageReady = false;
     _checkCount = 0;
@@ -1651,6 +1833,20 @@ class _CfChallengePageState extends State<CfChallengePage> {
     NavigationResponse navigationResponse,
   ) async {
     final response = navigationResponse.response;
+
+    // HarmonyOS：插件这条回调是「导航请求发出前」的伪造响应
+    // （InAppWebViewClient.buildNavigationResponseMap 恒 statusCode=200、
+    // headers 为空 Map），既不能证明已到源站，返回 ALLOW 还会 cancel+重放。
+    // 这里兜底忽略（正常情况下 OHOS 已在 initialSettings 里关掉
+    // useOnNavigationResponse，不会走到这里）。
+    if (PlatformUtils.isOhos) {
+      debugPrint(
+        '[CfChallenge][OHOS] 忽略 onNavigationResponse（插件伪造 status/headers）'
+        'url=${response?.url} status=${response?.statusCode}',
+      );
+      return NavigationResponseAction.ALLOW;
+    }
+
     if (navigationResponse.isForMainFrame == true &&
         _isVerifyUrl(response?.url)) {
       CfChallengeLogger.log(
@@ -1688,10 +1884,20 @@ class _CfChallengePageState extends State<CfChallengePage> {
     _noChallengeCheckTimer?.cancel();
     _loadStopFallbackTimer?.cancel();
     _pageReadyFallbackTimer?.cancel();
+    _cancelOriginFallbackRecheck();
     _challengeRevealProbeGeneration++;
     _revealStateWatchGeneration++;
 
     debugPrint('[CfChallenge] $reason，验证入口当前无盾，结束验证页面');
+    if (PlatformUtils.isOhos) {
+      // OHOS 判定关键：结束验证时是否真的先见过挑战页。
+      // seenChallenge=false 说明是「没见到盾就结束」→ 大概率又是误判
+      // （历史根因：插件伪造的 onNavigationResponse 200）。
+      debugPrint(
+        '[CfChallenge][OHOS] 结束验证: seenChallenge=$_hasSeenChallenge '
+        'reason=$reason',
+      );
+    }
     CfChallengeLogger.logVerifyResult(success: true, reason: reason);
     if (headers != null) {
       CfChallengeLogger.log('[VERIFY] Passed response headers: $headers');
@@ -1705,12 +1911,79 @@ class _CfChallengePageState extends State<CfChallengePage> {
     if (mounted && !_hasPopped) _finish(true);
   }
 
+  /// HarmonyOS 下等待 ArkWeb 把 cf_clearance 落到可读状态的上限。
+  ///
+  /// ArkWeb 的 cookie 由浏览器内核异步持久化（插件的删除路径都显式调用了
+  /// `WebCookieManager.saveCookieAsync()`），而 `fetchCookieSync(url)` 只按
+  /// URL 暴露 Cookie 头。验证页刚判定「已到源站」时立刻读，可能比 CF 的
+  /// Set-Cookie 落地晚一拍；短轮询读到即走，不改变验证结束流程
+  /// （调用方本来就是 unawaited 的）。
+  static const Duration _ohosClearanceProbeTimeout = Duration(seconds: 6);
+  static const Duration _ohosClearanceProbeInterval = Duration(
+    milliseconds: 400,
+  );
+
+  Future<String?> _awaitOhosClearanceProbe() async {
+    final deadline = DateTime.now().add(_ohosClearanceProbeTimeout);
+    String? last;
+    var attempts = 0;
+    while (DateTime.now().isBefore(deadline)) {
+      attempts++;
+      final value = await _readCookieValue('cf_clearance');
+      last = value;
+      if (value != null && value.isNotEmpty) {
+        if (attempts > 1) {
+          debugPrint(
+            '[CfChallenge][OHOS] 第 $attempts 次探测读到 cf_clearance '
+            '(${value.length} chars)',
+          );
+        }
+        return value;
+      }
+      await Future<void>.delayed(_ohosClearanceProbeInterval);
+    }
+    debugPrint(
+      '[CfChallenge][OHOS] ${_ohosClearanceProbeTimeout.inSeconds}s 内未从 ArkWeb '
+      '读到 cf_clearance（探测 $attempts 次）',
+    );
+    return last;
+  }
+
   Future<void> _syncCookiesAfterOriginResponse() async {
     try {
-      final clearance = await _readCookieValue('cf_clearance');
+      var clearance = await _readCookieValue('cf_clearance');
+      if (PlatformUtils.isOhos && (clearance == null || clearance.isEmpty)) {
+        clearance = await _awaitOhosClearanceProbe();
+      }
       await _syncLiveCookiesToCookieJar(
         freshClearance: _isFreshClearance(clearance) ? clearance : null,
       );
+      if (PlatformUtils.isOhos) {
+        // CF 403 根因归因行：ArkWeb 侧有没有给出 clearance、jar 是否落库。
+        // 三种组合分别对应：ArkWeb 没通过挑战 / 通过但导不出（HttpOnly 不可见）
+        // / 导出成功但写不进 jar。
+        final jarValue = await CookieJarService().getCfClearance();
+        final webViewPresent = clearance != null && clearance.isNotEmpty;
+        final jarPresent = jarValue != null && jarValue.isNotEmpty;
+        final webViewText = clearance == null || clearance.isEmpty
+            ? 'absent'
+            : '${clearance.length} chars';
+        final jarText = jarValue == null || jarValue.isEmpty
+            ? 'absent'
+            : '${jarValue.length} chars';
+        debugPrint(
+          '[CfChallenge][OHOS] clearance 归因: '
+          'webView=$webViewText jar=$jarText',
+        );
+        if (!jarPresent) {
+          CfChallengeLogger.log(
+            '[VERIFY][OHOS] 验证入口已放行，但 cf_clearance 未进入 CookieJar'
+            '（ArkWeb=${webViewPresent ? 'present' : 'absent'}）；'
+            '原生请求若继续 403 将切浏览器网络栈兜底',
+            level: 'warning',
+          );
+        }
+      }
     } catch (e) {
       debugPrint('[CfChallenge] 源站已放行，Cookie 同步未完成: $e');
     }
@@ -1754,6 +2027,11 @@ document.readyState === 'complete' && document.body && document.body.innerHTML.t
       return;
     }
     _hasSeenChallenge = true;
+    // OHOS 判定关键：挑战页是否被真正识别出来。只有日志里先出现这一行，
+    // 后面「验证入口无盾」才是「挑战跑完」而不是「挑战没开始就误判结束」。
+    if (PlatformUtils.isOhos) {
+      debugPrint('[CfChallenge][OHOS] 检测到挑战页，交给 ArkWeb 自行过盾');
+    }
     unawaited(
       _controller
               ?.evaluateJavascript(source: 'window.__fluxdoHideCfMask?.();')
@@ -1980,6 +2258,12 @@ document.readyState === 'complete' && document.body && document.body.innerHTML.t
 
     if (reason != null) {
       debugPrint('[CfChallenge] 页面进入可验证状态: $reason');
+      if (PlatformUtils.isOhos) {
+        // OHOS 判定关键：确认 onLoadStop 这条路在 ArkWeb 上确实有回调
+        // （此前怀疑过 OHOS 不触发，实测这里能出现就说明回调正常，
+        //  问题只在「谁来判定挑战结束」）。
+        debugPrint('[CfChallenge][OHOS] pageReady via $reason');
+      }
     }
 
     _injectChallengeInterceptor(controller);
@@ -2030,7 +2314,13 @@ document.readyState === 'complete' && document.body && document.body.innerHTML.t
   }
 
   void _schedulePageReadyFallback(InAppWebViewController controller) {
-    if ((!io.Platform.isWindows && !io.Platform.isLinux) ||
+    // HarmonyOS 也启用：OHOS 上最终判定完全依赖 onLoadStop / DOM 探测，
+    // 一旦某次导航没有按预期触发 onLoadStop（挑战页常驻长连接资源时可能
+    // 发生），没有这条定时兜底就永远不会进入可验证状态、也不会启动超时
+    // 计时器，验证页会一直挂着。
+    if ((!io.Platform.isWindows &&
+            !io.Platform.isLinux &&
+            !PlatformUtils.isOhos) ||
         _hasMarkedPageReady) {
       return;
     }
@@ -2048,7 +2338,10 @@ document.readyState === 'complete' && document.body && document.body.innerHTML.t
     InAppWebViewController controller,
     int progress,
   ) {
-    if ((!io.Platform.isWindows && !io.Platform.isLinux) ||
+    // HarmonyOS 同上：进度到 95% 视为页面已可判定，防 onLoadStop 缺失。
+    if ((!io.Platform.isWindows &&
+            !io.Platform.isLinux &&
+            !PlatformUtils.isOhos) ||
         _hasMarkedPageReady ||
         progress < 95) {
       return;
@@ -2078,8 +2371,23 @@ document.readyState === 'complete' && document.body && document.body.innerHTML.t
             javaScriptEnabled: true,
             userAgent: AppConstants.webViewUserAgentOverride,
             mediaPlaybackRequiresUserGesture: false,
-            useShouldOverrideUrlLoading: true,
-            useOnNavigationResponse: true,
+            // HarmonyOS：flutter_inappwebview 的 OHOS 插件把
+            // `onNavigationResponse` / `shouldOverrideUrlLoading` 实现在
+            // `onLoadIntercept`（**请求真正发出之前**）：
+            //   InAppWebViewClient.buildNavigationResponseMap() 恒返回
+            //   statusCode=200、headers=空 Map，并注明 "ArkWeb does not
+            //   reliably resume the original load after a sync wait"，
+            //   返回 ALLOW 时会 cancel 原请求 + setTimeout(loadUrl) 重放。
+            // 后果（2026-10-21 实测）：
+            //   1) 伪造的 200 让 _isVerifyOriginResponse() 把「/challenge 的
+            //      挑战页导航」当成「已到源站」，验证在 CF 挑战真正开始前就
+            //      结束 → ArkWeb 永远不会拿到 cf_clearance；
+            //   2) cancel+重放会打断 challenge 内部的 POST / 重定向。
+            // 所以 OHOS 上必须让 ArkWeb 像真实浏览器一样自己跑完导航，
+            // 只靠 onLoadStop + DOM 探测 + onReceivedHttpError（真实响应）
+            // 判定挑战是否结束。
+            useShouldOverrideUrlLoading: !PlatformUtils.isOhos,
+            useOnNavigationResponse: !PlatformUtils.isOhos,
           ),
           initialUserScripts: _initialChallengeScripts(),
           shouldOverrideUrlLoading: _shouldOverrideVerifyNavigation,

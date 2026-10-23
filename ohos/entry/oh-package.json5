@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "FluxDO HarmonyOS 主模块（Flutter 引擎入口）",
+  "main": "",
+  "author": "fluxdo",
+  "license": "",
+  "dependencies": {},
+}

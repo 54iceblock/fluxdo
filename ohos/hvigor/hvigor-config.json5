@@ -1,0 +1,12 @@
+﻿{
+  "modelVersion": "5.1.0",
+  "dependencies": {
+  },
+  "execution": {
+    // 说明：DevEco Studio 26 构建时会传 --enable-build-script-type-check，
+    // 该命令行参数优先级高于此处的 typeCheck 配置。
+    // 本工程已就地修复 flutter-hvigor-plugin 的 TS 类型错误
+    // （见 docs/patches/flutter-hvigor-plugin-typecheck.patch），
+    // 因此保留默认的类型检查即可通过构建。
+  }
+}

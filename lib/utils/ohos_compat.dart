@@ -1,0 +1,77 @@
+import 'dart:io';
+
+import 'platform_utils.dart';
+
+/// 鸿蒙（HarmonyOS / OpenHarmony）能力开关。
+///
+/// 移植背景：OHOS 平台没有官方的 DOH 代理、rhttp（Rust）、QuickJS（flutter_js）、
+/// AVIF（flutter_avif）、super_clipboard 等原生实现。这些能力在 lib/ 里被无条件
+/// 使用，直接调用会在运行时抛 MissingPluginException / UnsupportedError。
+///
+/// 这里集中声明「OHOS 上是否真的可用」，调用点统一走这里的开关，
+/// 既保证 OHOS 不崩溃，也不影响 Android/iOS/桌面端的既有行为。
+class OhosCompat {
+  OhosCompat._();
+
+  static bool get isOhos => PlatformUtils.isOhos;
+
+  /// 是否支持 Rust DOH 代理（core/doh_proxy）
+  /// OHOS：已交叉编译 libdoh_proxy.so（x86_64 / arm64-v8a）并打进 HAP 的 libs/`<abi>`/，
+  /// 运行时由 `DynamicLibrary.open('libdoh_proxy.so')` 加载（见 doh_proxy_ffi.dart）。
+  static bool get supportsDohProxy => true;
+
+  /// 是否支持 rhttp（Rust reqwest / TLS 指纹）
+  /// OHOS：已交叉编译 librhttp.so 并打进 HAP；FRB 默认加载器不识别 OHOS，
+  /// 由 main.dart 显式传 externalLibraryPath='librhttp.so' 加载。
+  static bool get supportsRhttp => true;
+
+  /// 是否支持 JS cook 渲染（Discourse markdown-it 预览）
+  /// OHOS：flutter_js 无原生库，但已自编 QuickJS（libohos_quickjs.so）
+  /// 并提供最小 eval 桥（lib/services/cook/ohos_quickjs.dart）。
+  static bool get supportsCookJs => true;
+
+  /// 是否支持 native_animated_image（Rust 动图解码）
+  /// OHOS：已交叉编译 libnative_animated_image_codec.so（GIF/APNG/动图 WebP）
+  /// 并打进 HAP 的 libs/`<abi>`/，加载分支见 vendored 包的 bindings。
+  static bool get supportsNativeAnimatedImage => true;
+
+  /// 是否支持 AVIF 解码
+  ///
+  /// OHOS：flutter_avif 没有平台实现。曾尝试用系统 ImageKit（ArkTS 桥，
+  /// 见 `FluxdoBridgePlugin.probeAvif/decodeAvif`）：
+  /// 实测本机（API 26 模拟器）能解析 AVIF 容器头（mime=image/avif、宽高正确），
+  /// 但 `createPixelMap` 三个变体（RGBA/默认/createPixelMapList）全部报
+  /// "Decode image header failed"，即系统解码器不含 AVIF 像素解码。
+  /// 因此仍关闭；后续走自编 libavif + dav1d 的方案。
+  static bool get supportsAvif => true;
+
+  /// 是否支持 super_clipboard（富文本剪贴板）
+  /// OHOS：暂无实现，回退纯文本剪贴板。
+  static bool get supportsRichClipboard => !isOhos;
+
+  /// 是否支持桌面窗口管理（window_manager / screen_retriever / acrylic）
+  static bool get supportsDesktopWindow => PlatformUtils.isDesktop;
+
+  /// 是否支持相机扫码（mobile_scanner）
+  /// OHOS：使用 CPF fork 的 OHOS 实现；相机不可用时页面内提供相册 + zxing2 兜底。
+  static bool get supportsCameraScanner =>
+      Platform.isAndroid || Platform.isIOS || Platform.isMacOS || isOhos;
+
+  /// 是否支持系统相册保存（gal）
+  /// OHOS：saver_gallery 5.x 自带 ohos 实现（photoAccessHelper 保存确认框），
+  /// 代码见 image_save_utils.dart，失败时回落到文件导出。
+  static bool get supportsSaveToGallery => true;
+
+  /// 是否支持本地通知插件（flutter_local_notifications）
+  /// OHOS：官方 fork 提供实现，若未注册则初始化会被 try/catch 兜住。
+  static bool get supportsLocalNotifications => true;
+
+  /// 是否支持后台保活（flutter_foreground_task / workmanager）
+  /// OHOS：用系统长时任务（backgroundTaskManager 的 DATA_TRANSFER 模式）自建保活，
+  /// 见 lib/services/background/ohos_background_task.dart。
+  static bool get supportsBackgroundTasks => true;
+
+  /// 是否支持应用内更新安装（ota_update / APK 安装）
+  /// OHOS：三方应用不能静默安装 HAP，改为引导跳转应用市场。
+  static bool get supportsInAppUpdate => !isOhos;
+}

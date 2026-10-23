@@ -23,6 +23,7 @@ import 'package:dio/dio.dart';
 import '../../services/app_error_handler.dart';
 import '../../services/discourse/discourse_service.dart';
 import '../../services/toast_service.dart';
+import '../../utils/clipboard_utils.dart';
 import '../../utils/platform_utils.dart';
 import '../common/fading_edge_scroll_view.dart';
 import '../content/discourse_html_content/image_utils.dart';
@@ -249,7 +250,12 @@ class MarkdownToolbarState extends State<MarkdownToolbar> {
   }
 
   /// 快速检查剪贴板是否有图片
+  ///
+  /// OHOS 没有 super_clipboard 原生实现，直接返回 false（不碰 SystemClipboard，
+  /// 否则会在取 instance 时抛符号查找异常）；图片粘贴降级为纯文本粘贴，
+  /// 由 TextField 自身处理。
   static Future<bool> clipboardHasImage() async {
+    if (!ClipboardUtils.supportsRichClipboard) return false;
     final clipboard = SystemClipboard.instance;
     if (clipboard == null) return false;
     final reader = await clipboard.read();
@@ -261,6 +267,8 @@ class MarkdownToolbarState extends State<MarkdownToolbar> {
 
   /// 处理粘贴事件：仅检测剪贴板图片，文本粘贴由 TextField 自行处理
   Future<bool> pasteImageFromClipboard() async {
+    // 同上：OHOS 上剪贴板图片能力不可用，交给 TextField 的纯文本粘贴。
+    if (!ClipboardUtils.supportsRichClipboard) return false;
     final anchor = _uploadAnchors.capture();
     _uploadingCount++;
     try {

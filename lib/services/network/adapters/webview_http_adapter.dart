@@ -9,6 +9,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../../../constants.dart';
 import '../../../utils/frame_jank_monitor.dart';
+import '../../../utils/platform_utils.dart';
 import '../../auth_session.dart';
 import '../cookie/app_cookie_manager.dart';
 import '../cookie/boundary_sync_service.dart';
@@ -109,6 +110,9 @@ class WebViewHttpAdapter implements HttpClientAdapter {
         webViewEnvironment: Platform.isWindows
             ? WindowsWebViewEnvironmentService.instance.environment
             : null,
+        // HarmonyOS 第 4 轮回归修复：恢复 data: 引导页（第 2 轮已验证可用）。
+        // 曾改成真实 origin 文档（robots.txt + document.write 空壳）让 headless
+        // 自己过 CF 挑战，实测 JS fetch 响应回不到 Dart、请求挂死 70s+。
         initialSettings: WebViewSettings.headless,
         initialUserScripts: WebViewSettings.compatPolyfillScripts,
         onReceivedServerTrustAuthRequest: (_, challenge) =>
@@ -164,7 +168,7 @@ class WebViewHttpAdapter implements HttpClientAdapter {
       pageLoadCompleter = Completer<void>();
       if (Platform.isWindows) {
         await controller.loadUrl(
-          urlRequest: URLRequest(url: WebUri(_windowsBootstrapUrl)),
+          urlRequest: URLRequest(url: WebUri(_originBootstrapUrl)),
         );
       } else {
         await controller.loadData(
@@ -225,7 +229,17 @@ document.close();
     );
   }
 
-  String get _windowsBootstrapUrl => '${AppConstants.baseUrl}/robots.txt';
+  /// HarmonyOS 浏览器栈 fetch 打点。
+  ///
+  /// 第 3 轮回归（JS fetch 响应回不到 Dart、请求挂死）排查用：从「开始注入
+  /// JS」到「拿到结果 / 超时 / JS 报错」每一步都留一行 hilog 可见日志，
+  /// 下次再挂住就能直接定位卡在哪一段。仅 OHOS 输出，其它平台保持安静。
+  void _logOhosFetch(String message) {
+    if (!PlatformUtils.isOhos) return;
+    debugPrint('[WebViewAdapter][OHOS] $message');
+  }
+
+  String get _originBootstrapUrl => '${AppConstants.baseUrl}/robots.txt';
 
   String get _bootstrapHtml =>
       '<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
@@ -439,6 +453,7 @@ document.close();
     ''';
 
       debugPrint('[WebViewAdapter] Fetching: $method $url (id: $requestId)');
+      _logOhosFetch('fetch start $method $url id=$requestId');
 
       final cancelFutureForRequest = cancelFuture;
       if (cancelFutureForRequest != null) {
@@ -464,8 +479,13 @@ document.close();
         await _controller!.evaluateJavascript(source: script);
         jsEvalWatch.stop();
         jsEvalElapsed = jsEvalWatch.elapsed;
-      } catch (_) {
+        _logOhosFetch(
+          'fetch js eval done id=$requestId '
+          '(${jsEvalWatch.elapsedMilliseconds}ms)',
+        );
+      } catch (e) {
         _pendingRequests.remove(requestId);
+        _logOhosFetch('fetch js eval failed id=$requestId: $e');
         rethrow;
       }
 
@@ -481,6 +501,10 @@ document.close();
         onTimeout: () {
           _pendingRequests.remove(requestId);
           unawaited(_abortWebViewFetch(requestId));
+          _logOhosFetch(
+            'fetch timeout id=$requestId after ${timeout.inMilliseconds}ms '
+            '($method $url)',
+          );
           throw DioException(
             requestOptions: options,
             error: 'WebView request timeout',
@@ -494,6 +518,9 @@ document.close();
       final responseData = jsonDecode(resultStr) as Map<String, dynamic>;
 
       if (responseData['ok'] != true) {
+        _logOhosFetch(
+          'fetch js error id=$requestId: ${responseData['error']}',
+        );
         throw DioException(
           requestOptions: options,
           error: responseData['error']?.toString() ?? 'Unknown error',
@@ -503,6 +530,11 @@ document.close();
 
       final statusCode = responseData['status'] as int? ?? 200;
       final bodyContent = responseData['body'] as String? ?? '';
+      _logOhosFetch(
+        'fetch done id=$requestId status=$statusCode '
+        'bodyLen=${bodyContent.length} '
+        'browserWait=${browserWaitElapsed.inMilliseconds}ms',
+      );
 
       final responseHeaders = <String, List<String>>{};
 

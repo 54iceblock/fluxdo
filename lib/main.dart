@@ -1,3 +1,4 @@
+﻿import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 
@@ -10,7 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:native_animated_image/native_animated_image.dart'
-    show NativeAnimatedImageProvider;
+    show NativeAnimatedImageProvider, NativeAnimatedImageFfi;
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as acrylic;
 import 'pages/topics_page.dart';
@@ -22,6 +23,9 @@ import 'widgets/ai/builtin_presets_factory.dart';
 import 'providers/message_bus_providers.dart';
 import 'providers/chat/chat_notification_alert_provider.dart';
 import 'services/auth_issue_notice_service.dart';
+import 'services/background/ohos_background_task.dart';
+import 'services/cook/ohos_quickjs.dart';
+import 'services/avif_ohos_codec.dart';
 import 'services/crash_context_reporter.dart';
 import 'providers/app_state_refresher.dart';
 import 'services/highlighter_service.dart';
@@ -120,12 +124,263 @@ import 'providers/read_later_provider.dart';
 import 'providers/shortcut_provider.dart';
 import 'widgets/keyboard_shortcut_handler.dart';
 import 'utils/platform_utils.dart';
+import 'utils/ohos_compat.dart';
 import 'utils/discourse_url_parser.dart';
 
 /// 初始化 rhttp Rust runtime
+///
+/// HarmonyOS：FRB 默认加载器不认识该平台，这里显式指定原生库名
+/// （`librhttp.so` 已交叉编译并随 HAP 的 libs/`<abi>`/ 打包）。
 Future<bool> _initRhttp() async {
-  await rhttp.Rhttp.init();
+  await rhttp.Rhttp.init(
+    externalLibraryPath: PlatformUtils.isOhos ? 'librhttp.so' : null,
+  );
   return true;
+}
+
+/// 把 rhttp 初始化结果落盘（Dart 的 debugPrint 在 HarmonyOS 不进 hilog）。
+void _logRhttpInit(String result, String? error) {
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': result == 'ok' ? 'info' : 'warning',
+      'type': 'rhttp',
+      'event': 'rhttp_init',
+      'result': result,
+      'platform': PlatformUtils.isOhos ? 'ohos' : 'other',
+      if (error != null) 'error': error,
+    });
+  } catch (_) {
+    // 日志失败不影响启动
+  }
+}
+
+/// 把原生动图解码库的探测结果落盘。
+void _logNativeCodec(String result, String? version, {String? error}) {
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': result == 'ok' ? 'info' : 'warning',
+      'type': 'image',
+      'event': 'native_animated_codec',
+      'result': result,
+      if (version != null) 'version': version,
+      'platform': PlatformUtils.isOhos ? 'ohos' : 'other',
+      if (error != null) 'error': error,
+    });
+  } catch (_) {
+    // 日志失败不影响启动
+  }
+}
+
+/// AVIF 能力探测：分别验证「系统 ImageKit」与「自编 libavif+dav1d」两条路径。
+Future<void> _probeOhosAvifSupport() async {
+  const channel = MethodChannel('com.fluxdo/ohos');
+  Uint8List? bytes;
+  try {
+    // 样本来自打包资源（assets/probe/avif-probe.avif），避免依赖外部文件权限。
+    final data = await rootBundle.load('assets/probe/avif-probe.avif');
+    bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  } catch (e) {
+    _logAvifProbe('no-sample', '$e');
+    return;
+  }
+
+  // 1) 系统 ImageKit：只解析容器头（解码多数设备会失败，仅作记录）
+  try {
+    final info = await channel.invokeMethod<Map<Object?, Object?>>(
+      'probeAvif',
+      <String, Object>{'bytes': bytes},
+    );
+    _logAvifProbe('ok', info?.toString());
+  } catch (e) {
+    _logAvifProbe('error', '$e');
+  }
+
+  // 2) 自编 native 库（supportsAvif 实际依赖的那条路径）
+  final native = OhosAvifCodec.instance.decode(bytes, maxDim: 256);
+  if (native == null) {
+    _logAvifProbe(
+      'native-null',
+      'available=${OhosAvifCodec.instance.isAvailable}',
+    );
+  } else {
+    _logAvifProbe(
+      'native-ok',
+      'w=${native.width} h=${native.height} rgba=${native.rgba.length}',
+    );
+  }
+}
+
+void _logAvifProbe(String result, String? detail) {  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': result == 'ok' ? 'info' : 'warning',
+      'type': 'image',
+      'event': 'avif_probe',
+      'result': result,
+      if (detail != null) 'detail': detail,
+      'platform': 'ohos',
+    });
+  } catch (_) {
+    // 日志失败不影响启动
+  }
+}
+
+/// QuickJS 能力探测（cook 渲染用）：执行小脚本，并试跑真实 cook bundle。
+Future<void> _probeOhosQuickJs() async {
+  final js = OhosQuickJs.create();
+  if (js == null) {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': 'warning',
+      'type': 'cook',
+      'event': 'ohos_quickjs_probe',
+      'result': 'error',
+      'error': 'libohos_quickjs.so 不可用',
+      'platform': 'ohos',
+    });
+    return;
+  }
+  try {
+    final res = js.evaluate('1+1');
+    LogWriter.instance.write(<String, dynamic>{
+      'level': res.isError ? 'warning' : 'info',
+      'type': 'cook',
+      'event': 'ohos_quickjs_probe',
+      'result': res.isError ? 'error' : 'ok',
+      'version': OhosQuickJs.version,
+      if (res.isError) 'error': res.error,
+      if (!res.isError) 'sample': res.result,
+      'platform': 'ohos',
+    });
+  } catch (e) {
+    debugPrint('[OhosQuickJs] 探测异常: $e');
+  }
+
+  // 端到端：真正 eval 一次 cook bundle（与 DiscourseCookService 热身同一份资源）
+  try {
+    final bundle = await rootBundle.loadString('assets/cook/discourse-cook.js');
+    final started = DateTime.now();
+    final res = js.evaluate(bundle);
+    final ms = DateTime.now().difference(started).inMilliseconds;
+    LogWriter.instance.write(<String, dynamic>{
+      'level': res.isError ? 'warning' : 'info',
+      'type': 'cook',
+      'event': 'cook_bundle_eval',
+      'result': res.isError ? 'error' : 'ok',
+      'bundleBytes': bundle.length,
+      'durationMs': ms,
+      if (res.isError) 'error': res.error,
+      if (!res.isError) 'resultLength': res.result?.length,
+      'platform': 'ohos',
+    });
+    // 验证上下文持久性：bundle 定义的全局在后续 eval 中应仍可见
+    final probeGlobal = js.evaluate('typeof __fluxdoCook');
+    LogWriter.instance.write(<String, dynamic>{
+      'level': probeGlobal.isError ? 'warning' : 'info',
+      'type': 'cook',
+      'event': 'cook_global_probe',
+      'result': probeGlobal.isError ? 'error' : 'ok',
+      if (probeGlobal.isError) 'error': probeGlobal.error,
+      if (!probeGlobal.isError) 'globalType': probeGlobal.result,
+      'platform': 'ohos',
+    });
+  } catch (e) {
+    debugPrint('[OhosQuickJs] cook bundle 探测异常: $e');
+  } finally {
+    js.dispose();
+  }
+}
+
+/// 后台保活能力探测（仅 debug）：申请一次长时任务再立刻结束，确认桥与清单配置可用。
+Future<void> _probeOhosContinuousTask() async {
+  final task = OhosBackgroundTask.instance;
+  final started = await task.start();
+  _logBackgroundProbe(started ? 'started' : 'failed');
+  if (started) {
+    await task.stop();
+    _logBackgroundProbe('stopped');
+  }
+}
+
+void _logBackgroundProbe(String state) {
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': state == 'failed' ? 'warning' : 'info',
+      'type': 'background',
+      'event': 'ohos_continuous_task_probe',
+      'state': state,
+      'platform': 'ohos',
+    });
+  } catch (_) {
+    // 日志失败不影响启动
+  }
+}
+
+/// 富文本剪贴板能力探测（仅 debug）：写一张 1×1 PNG 再读回 HTML，
+/// 确认 ArkTS 剪贴板桥可用。
+Future<void> _probeOhosClipboard() async {
+  const channel = MethodChannel('com.fluxdo/ohos');
+  try {
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    );
+    await channel.invokeMethod<bool>(
+      'writeImageToPasteboard',
+      <String, Object>{'bytes': png},
+    );
+    _logClipboardProbe('write-ok', null);
+  } catch (e) {
+    _logClipboardProbe('write-error', '$e');
+  }
+  try {
+    final html = await channel.invokeMethod<String>('readClipboardHtml');
+    _logClipboardProbe('read-ok', html == null ? 'null' : 'len=${html.length}');
+  } catch (e) {
+    _logClipboardProbe('read-error', '$e');
+  }
+}
+
+void _logClipboardProbe(String result, String? detail) {
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': result.endsWith('-ok') ? 'info' : 'warning',
+      'type': 'clipboard',
+      'event': 'ohos_clipboard_probe',
+      'result': result,
+      if (detail != null) 'detail': detail,
+      'platform': 'ohos',
+    });
+  } catch (_) {
+    // 日志失败不影响启动
+  }
+}
+
+/// 本地通知能力探测（仅 debug）：初始化插件并发一条测试通知。
+Future<void> _probeOhosNotification() async {
+  try {
+    final service = LocalNotificationService();
+    await service.initialize();
+    await service.show(
+      title: 'FluxDO 通知测试',
+      body: 'HarmonyOS 本地通知链路正常',
+    );
+    _logNotificationProbe('ok', null);
+  } catch (e) {
+    _logNotificationProbe('error', '$e');
+  }
+}
+
+void _logNotificationProbe(String result, String? detail) {
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': result == 'ok' ? 'info' : 'warning',
+      'type': 'notification',
+      'event': 'ohos_notification_probe',
+      'result': result,
+      if (detail != null) 'error': detail,
+      'platform': 'ohos',
+    });
+  } catch (_) {
+    // 日志失败不影响启动
+  }
 }
 
 /// 应用 Android 屏幕刷新率偏好。
@@ -172,9 +427,11 @@ Future<void> main() async {
   //   GStreamer 桥已稳定,换后端无收益)。
   if (!kIsWeb && Platform.isLinux) {
     JustAudioGst.registerWith();
-  } else {
+  } else if (PlatformUtils.isDesktop) {
     JustAudioMediaKit.ensureInitialized(linux: false);
   }
+  // HarmonyOS：just_audio 由 OHOS 平台实现注册（just_audio_harmonyos），
+  // 不走 desktop 的 media_kit 后端。
 
   // video_player 官方无 Windows/Linux 后端,两平台桥接到 media_kit(libmpv),
   // 必须先于任何 VideoPlayerController 创建。其余平台维持官方后端。
@@ -254,7 +511,12 @@ Future<void> main() async {
   HighlighterService.instance.initialize(); // 不需要 await，后台初始化
 
   // 初始化本地通知服务（请求权限）
-  LocalNotificationService().initialize(); // 不需要 await，后台初始化
+  // HarmonyOS：本地通知走 OHOS 平台实现；失败只影响通知，不应阻断启动。
+  unawaited(
+    LocalNotificationService().initialize().catchError((Object e) {
+      debugPrint('[Main] 本地通知初始化失败（可忽略）: $e');
+    }),
+  );
 
   // Android：临时关闭 WebView DevTools 调试，停用原生 CDP 链路
   if (Platform.isAndroid) {
@@ -374,18 +636,51 @@ Future<void> main() async {
   await WebViewAdapterSettingsService.instance.initialize(prefs);
   // Eruda 调试控制台开关 (默认关)
   await ErudaSettingsService.instance.initialize(prefs);
-  try {
-    final rhttp = await Future.any([
-      _initRhttp(),
-      Future.delayed(const Duration(seconds: 5), () => false),
-    ]);
-    if (rhttp != true) {
-      debugPrint('[rhttp] 初始化超时或失败');
+  if (!OhosCompat.supportsRhttp) {
+    // 平台不支持 rhttp：网络回退到 dio 默认 IOHttpClientAdapter（不阻塞启动）。
+    debugPrint('[rhttp] 当前平台不支持，已强制关闭');
+    _logRhttpInit('unsupported', null);
+    await RhttpSettingsService.instance.forceDisable();
+  } else {
+    try {
+      final rhttp = await Future.any([
+        _initRhttp(),
+        Future.delayed(const Duration(seconds: 5), () => false),
+      ]);
+      if (rhttp != true) {
+        debugPrint('[rhttp] 初始化超时或失败');
+        _logRhttpInit('timeout', null);
+        await RhttpSettingsService.instance.forceDisable();
+      } else {
+        _logRhttpInit('ok', null);
+      }
+    } catch (e) {
+      debugPrint('[rhttp] 初始化异常: $e');
+      _logRhttpInit('error', '$e');
       await RhttpSettingsService.instance.forceDisable();
     }
-  } catch (e) {
-    debugPrint('[rhttp] 初始化异常: $e');
-    await RhttpSettingsService.instance.forceDisable();
+  }
+
+  // 原生动图解码库探测：加载成功即记录版本号，便于确认 OHOS 上 FFI 可用。
+  if (OhosCompat.supportsNativeAnimatedImage) {
+    try {
+      final codecVersion = NativeAnimatedImageFfi.instance.version();
+      _logNativeCodec('ok', codecVersion);
+    } catch (e) {
+      _logNativeCodec('error', null, error: '$e');
+    }
+  }
+
+  // AVIF 能力探测（HarmonyOS ImageKit）：确认系统能否解码 AVIF，
+  // 结果只写日志，不阻塞启动。
+  if (PlatformUtils.isOhos) {
+    unawaited(_probeOhosAvifSupport());
+    unawaited(_probeOhosQuickJs());
+    if (kDebugMode) {
+      unawaited(_probeOhosContinuousTask());
+      unawaited(_probeOhosClipboard());
+      unawaited(_probeOhosNotification());
+    }
   }
 
   // Windows 固定系统代理必须先于本地 DoH/WebView 网关读取，网关才能按

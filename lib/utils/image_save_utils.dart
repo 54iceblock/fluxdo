@@ -6,6 +6,7 @@ import 'package:gal/gal.dart';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:saver_gallery/saver_gallery.dart';
 
 import '../l10n/s.dart';
 import '../services/toast_service.dart';
@@ -15,7 +16,9 @@ import 'share_utils.dart';
 /// 「把这张图交给用户」的统一出口。
 ///
 /// 平台分工：
-/// - 移动端 → 系统相册（gal）；
+/// - 移动端 → 系统相册（Android/iOS 走 gal）；
+/// - HarmonyOS → saver_gallery 的媒体库保存（系统弹出「保存到相册」确认框），
+///   失败回落应用 Documents 目录的文件保存（见 [_saveToOhosFile]）；
 /// - 桌面端 → 另存为对话框存成文件。桌面用户对「保存图片」的预期是自己选
 ///   目录而不是塞进系统图片库；更关键的是 **gal 没有 Linux 实现**（pubspec
 ///   只声明 android/ios/macos/windows），在 Linux 上调用会抛
@@ -25,6 +28,7 @@ import 'share_utils.dart';
 /// loading 状态，避免同一个动作在不同页面弹出不同措辞。
 abstract final class ImageSaveUtils {
   /// 当前平台「保存图片」的动作文案：桌面「保存图片」/ 移动「保存到相册」。
+  /// HarmonyOS 已接 saver_gallery，主路径同样是相册，文案用「保存到相册」。
   static String get actionLabel => PlatformUtils.isDesktop
       ? S.current.share_saveImageToFile
       : S.current.share_saveToGallery;
@@ -41,9 +45,68 @@ abstract final class ImageSaveUtils {
       return false;
     }
     final safeName = _resolveFileName(fileName, bytes);
+    if (PlatformUtils.isOhos) {
+      return _saveToOhosGallery(bytes, safeName);
+    }
     return PlatformUtils.isDesktop
         ? _saveAsFile(bytes, safeName)
         : _saveToGallery(bytes, safeName);
+  }
+
+  /// HarmonyOS：优先 saver_gallery 写入系统媒体库。
+  ///
+  /// saver_gallery 5.x 的 OHOS 实现走 `photoAccessHelper.showAssetsCreationDialog`：
+  /// 由系统弹「保存到相册」确认框，**不需要** READ_IMAGEVIDEO 等受限权限，
+  /// 也不需要申请媒体库授权。失败（含用户在系统弹框里取消）时回落到文件保存，
+  /// 保证字节一定落地。
+  static Future<bool> _saveToOhosGallery(
+    Uint8List bytes,
+    String fileName,
+  ) async {
+    try {
+      final result = await SaverGallery.saveImage(
+        bytes,
+        fileName: fileName,
+        skipIfExists: false,
+      );
+      if (result.isSuccess) {
+        ToastService.showSuccess(S.current.share_imageSaved);
+        return true;
+      }
+      debugPrint(
+        '[ImageSaveUtils] OHOS saver_gallery 失败，回落文件保存: '
+        '${result.errorMessage}',
+      );
+    } catch (e) {
+      debugPrint('[ImageSaveUtils] OHOS saver_gallery 异常，回落文件保存: $e');
+    }
+    return _saveToOhosFile(bytes, fileName);
+  }
+
+  /// HarmonyOS：saver_gallery 不可用时的兜底 —— 写进应用自身 Documents 目录。
+  ///
+  /// 为什么不走 [ShareUtils.saveFile]：「另存为」依赖 file_picker / share_plus，
+  /// 这两个包目前没有 OHOS 实现（见 docs/ohos-plugin-matrix.md），调用必失败。
+  /// 这里用纯 Dart 落盘，用户可在「文件管理 → 应用 → FluxDO」里拿到文件，
+  /// 至少不会出现「保存失败且没任何产物」。
+  static Future<bool> _saveToOhosFile(
+    Uint8List bytes,
+    String fileName,
+  ) async {
+    try {
+      final documentsDir = await getApplicationDocumentsDirectory();
+      final dir = Directory(p.join(documentsDir.path, 'SavedImages'));
+      await dir.create(recursive: true);
+      final file = File(p.join(dir.path, fileName));
+      await file.writeAsBytes(bytes, flush: true);
+      debugPrint('[ImageSaveUtils] OHOS 图片已写入文件: ${file.path}');
+      ToastService.showSuccess(S.current.share_fileSaved);
+      return true;
+    } catch (e) {
+      debugPrint('[ImageSaveUtils] OHOS 文件保存失败: $e');
+      ToastService.showError(S.current.share_saveFailed);
+      return false;
+    }
   }
 
   /// 桌面：写临时文件再走另存为对话框（失败提示由 ShareUtils 给出）。

@@ -2,10 +2,12 @@ import 'dart:io' as io;
 
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../../../../utils/platform_utils.dart';
 import 'android_cookie_strategy.dart';
 import 'apple_cookie_strategy.dart';
 import 'default_cookie_strategy.dart';
 import 'linux_cookie_strategy.dart';
+import 'ohos_cookie_strategy.dart';
 
 /// 平台 cookie 策略抽象基类。
 ///
@@ -16,6 +18,10 @@ abstract class PlatformCookieStrategy {
     if (io.Platform.isAndroid) return AndroidCookieStrategy();
     if (io.Platform.isIOS || io.Platform.isMacOS) return AppleCookieStrategy();
     if (io.Platform.isLinux) return LinuxCookieStrategy();
+    // HarmonyOS：dart:io 的 Platform.isAndroid/isIOS/isLinux 全为 false，
+    // 必须显式判断，否则会落到 DefaultCookieStrategy（只用深层 URL 读，
+    // 且完全没有诊断）。详见 ohos_cookie_strategy.dart 的注释。
+    if (PlatformUtils.isOhos) return OhosCookieStrategy();
     return DefaultCookieStrategy();
   }
 

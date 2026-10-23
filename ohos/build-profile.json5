@@ -1,0 +1,45 @@
+{
+  "app": {
+    // 刻意留空：脚本化构建（tools\ohos\build-ohos.ps1）不依赖 hvigor 内置签名。
+    // 手工/DevEco 调试签名在构建之后由 tools\ohos\ohos-sign.ps1 完成（OpenHarmony 默认证书链）。
+    // 注意：若 DevEco Studio 打开工程后自动写入 signingConfigs（含加密密码），
+    // assembleHap 会在 SignHap 阶段报 "No permission write to signConfigCheckJson.json"，
+    // 需要把这里恢复成空数组再跑脚本构建。
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        // DevEco Studio 26 / HarmonyOS 7：必须写完整三段式版本号 "26.0.0"，
+        // 写 "5.0.5(17)" 或 "26" 都会在 hvigor 阶段报 SDK 版本非法。
+        "compatibleSdkVersion": "26.0.0",
+        "targetSdkVersion": "26.0.0",
+        "runtimeOS": "HarmonyOS"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "profile"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

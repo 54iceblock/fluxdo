@@ -10,6 +10,7 @@ import '../../pages/network_settings_page/widgets/eruda_card.dart';
 import '../../pages/network_settings_page/widgets/http_proxy_card.dart';
 import '../../pages/network_settings_page/widgets/rate_limit_card.dart';
 import '../../pages/network_settings_page/widgets/vpn_auto_toggle_card.dart';
+import '../../utils/ohos_compat.dart';
 import '../settings_model.dart';
 import '../../providers/preferences_provider.dart';
 
@@ -38,12 +39,16 @@ List<SettingsGroup> buildNetworkGroups(BuildContext context) {
       icon: Symbols.dns_rounded,
       wrapInCard: false,
       items: [
-        CustomModel(
-          id: 'dohSettings',
-          title: 'DNS over HTTPS',
-          subtitle: l10n.networkSettings_proxy,
-          builder: (context, ref) => const DohSettingsCard(),
-        ),
+        // DOH 代理依赖 core/doh_proxy 的 Rust 原生实现（本地网关 + 证书注入）。
+        // HarmonyOS 上该原生库未移植，开关点了也不会生效，故不展示
+        // （见 docs/ohos-port-report.md §6「OHOS 上降级/禁用的能力」）。
+        if (OhosCompat.supportsDohProxy)
+          CustomModel(
+            id: 'dohSettings',
+            title: 'DNS over HTTPS',
+            subtitle: l10n.networkSettings_proxy,
+            builder: (context, ref) => const DohSettingsCard(),
+          ),
         CustomModel(
           id: 'httpProxy',
           title: l10n.httpProxy_title,
