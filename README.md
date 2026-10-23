@@ -2,6 +2,10 @@
 
 > 一个真诚、友善、团结、专业的 [Linux.do](https://linux.do/) 第三方客户端
 
+> **HarmonyOS 分支**：本分支在 v0.2.29 基础上提供 **HarmonyOS 7（API 26）** 移植。
+> 由于**未上架应用市场**，安装需**侧载**；侧载步骤、构建方式、已知限制见
+> **[README-ohos.md](./README-ohos.md)**。
+
 [![Telegram Channel](https://img.shields.io/badge/Telegram-Channel-26A5E4?logo=telegram&logoColor=white)](https://t.me/ldxfd)
 [![Telegram Group](https://img.shields.io/badge/Telegram-Group-26A5E4?logo=telegram&logoColor=white)](https://t.me/fluxdo_chat)
 

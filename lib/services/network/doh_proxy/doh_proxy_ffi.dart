@@ -350,7 +350,7 @@ class DohProxyFfi {
         return _loadMacOSLibrary();
       } else if (PlatformUtils.isOhos) {
         // HarmonyOS：交叉编译产物 libdoh_proxy.so 随 HAP 打包到 libs/<abi>/，
-        // 运行时按 SONAME 直接打开即可（NDK 交叉编译，见 docs/ohos-native-strategy.md）。
+        // 运行时按 SONAME 直接打开即可（NDK 交叉编译，见 docs/ohos/architecture.md）。
         return DynamicLibrary.open('libdoh_proxy.so');
       } else if (Platform.isLinux) {
         return DynamicLibrary.open('libdoh_proxy.so');

@@ -1,0 +1,53 @@
+﻿# flutter-hvigor-plugin TypeScript 类型检查修复
+#
+# 背景：DevEco Studio 26 构建时传 --enable-build-script-type-check，会以 ES2016/严格模式
+# 类型检查 hvigorfile.ts 及其依赖。Flutter SDK 自带的 flutter-hvigor-plugin 有 4 类类型错误，
+# 导致构建失败：
+#   TS2550: replaceAll 不存在（ES2021 才有）
+#   TS2339: JSON 上不存在 name / path（findFlutterPlugins 返回类型写成 JSON[]）
+#   TS18048: targetPlatforms possibly undefined
+#   TS7006: 参数 plugin 隐式 any
+#
+# 应用方式：直接在本工作区的 Flutter SDK 上修改（已改好），或按下列 diff 手工打补丁。
+
+--- a/src/util/file-util.ts
++++ b/src/util/file-util.ts
+@@ -6,7 +6,9 @@ export function relativePath(basePath: string, filePath: string): string {
+   if (!path.isAbsolute(p) && !p.startsWith('.')) {
+     p = './' + p
+   }
+-  return p.replaceAll('\\', '/')
++  // 用 split/join 代替 replaceAll：DevEco 构建脚本类型检查以 ES2016 为目标，
++  // replaceAll 属于 ES2021，会报 TS2550。
++  return p.split('\\').join('/')
+ }
+
+--- a/src/plugin/flutter-hvigor-plugin.ts
++++ b/src/plugin/flutter-hvigor-plugin.ts
+@@ -55,7 +55,7 @@
+-      const targetPlatforms = getParameters(TARGET_PLATFORM, DEFAULT_PLATFORMS)
++      const targetPlatforms = getParameters(TARGET_PLATFORM, DEFAULT_PLATFORMS) ?? DEFAULT_PLATFORMS
+@@ -260,7 +260,7 @@
+-      const targetPlatforms = getParameters(TARGET_PLATFORM, DEFAULT_PLATFORMS)
++      const targetPlatforms = getParameters(TARGET_PLATFORM, DEFAULT_PLATFORMS) ?? DEFAULT_PLATFORMS
+@@ -475,12 +475,19 @@
+-function findFlutterPlugins(flutterPluginsDependenciesPath: string): JSON[] {
++/** `.flutter-plugins-dependencies` 中 plugins.ohos 的条目结构。 */
++interface FlutterOhosPlugin {
++  name: string
++  path: string
++  native_build?: boolean
++}
++
++function findFlutterPlugins(flutterPluginsDependenciesPath: string): FlutterOhosPlugin[] {
+   if (!fs.existsSync(flutterPluginsDependenciesPath)) {
+     return []
+   }
+   const fileContent = fs.readFileSync(flutterPluginsDependenciesPath, 'utf-8')
+-  const ohosPlugins = JSON.parse(fileContent).plugins.ohos
++  const ohosPlugins = JSON.parse(fileContent).plugins.ohos as FlutterOhosPlugin[]
+   const filteredPlugins =
+-    ohosPlugins.filter(plugin => plugin.native_build !== false)
++    ohosPlugins.filter((plugin: FlutterOhosPlugin) => plugin.native_build !== false)
+   return filteredPlugins
+ }

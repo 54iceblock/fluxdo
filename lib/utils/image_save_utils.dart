@@ -86,7 +86,7 @@ abstract final class ImageSaveUtils {
   /// HarmonyOS：saver_gallery 不可用时的兜底 —— 写进应用自身 Documents 目录。
   ///
   /// 为什么不走 [ShareUtils.saveFile]：「另存为」依赖 file_picker / share_plus，
-  /// 这两个包目前没有 OHOS 实现（见 docs/ohos-plugin-matrix.md），调用必失败。
+  /// 这两个包目前没有 OHOS 实现（见 docs/ohos/plugin-matrix.md），调用必失败。
   /// 这里用纯 Dart 落盘，用户可在「文件管理 → 应用 → FluxDO」里拿到文件，
   /// 至少不会出现「保存失败且没任何产物」。
   static Future<bool> _saveToOhosFile(

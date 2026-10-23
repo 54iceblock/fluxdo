@@ -59,7 +59,7 @@
         ]
       }
     ],
-    // 依据 docs/ohos-plugin-matrix.md §3.1；受限权限（READ_IMAGEVIDEO 等）刻意不声明。
+    // 依据 docs/ohos/plugin-matrix.md §3.1；受限权限（READ_IMAGEVIDEO 等）刻意不声明。
     // 注：富文本「读」剪贴板 ohos.permission.READ_PASTEBOARD 属 system_basic 级，
     // 普通应用证书安装期即失败（grant request permissions failed），故不声明；
     // 读取走 ClipboardUtils.readHtml()，失败时自动回退纯文本粘贴。
