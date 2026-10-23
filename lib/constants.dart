@@ -306,7 +306,13 @@ class AppConstants {
   }
 
   /// linux.do 域名
-  static const String baseUrl = 'https://linux.do';
+  ///
+  /// 可通过 `--dart-define=FLUXDO_BASE_URL=http://host:port` 覆盖，
+  /// 用于本地 mock 服务联调（HarmonyOS 真机验证）。
+  static const String baseUrl = String.fromEnvironment(
+    'FLUXDO_BASE_URL',
+    defaultValue: 'https://linux.do',
+  );
 
   /// 请求首页时是否跳过 X-CSRF-Token（用于预热）
   static const bool skipCsrfForHomeRequest = true;
