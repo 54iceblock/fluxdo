@@ -1,4 +1,4 @@
-﻿name: fluxdo
+name: fluxdo
 description: "A new Flutter project."
 publish_to: 'none'
 version: 0.2.29+2026102016
@@ -62,7 +62,7 @@ dependencies:
   # OHOS 移植（vendored）：CPF-Flutter fork 的 share_plus 12.0.1 + ohos/ ArkTS 实现，
   # 用 path 依赖替代官方 12.0.2（Dart API 不变，业务代码 import 不用改）。
   # 配套 packages/share_plus_platform_interface 也是 vendored（去掉了嵌套 git 依赖）。
-  # 其他五端本轮同样走这份 fork，拆双 pubspec 时可整体回退。详见 docs/ohos-pubspec-changes.md §10。
+  # 其他五端本轮同样走这份 fork，拆双 pubspec 时可整体回退。详见 docs/ohos/plugin-matrix.md §10。
   share_plus:
     path: packages/share_plus
   cross_file: ^0.3.4+2
@@ -168,7 +168,7 @@ dependencies:
   # 逻辑：Dart API 仍由上面的官方 app-facing 包提供，这里只补 OHOS 平台实现；
   # 其中 *_ohos / *_harmonyos / record_ohos 只声明 ohos 平台，Android/iOS/桌面构建会忽略。
   # 唯一例外：saver_gallery 是「替代包」（gal 无 OHOS 实现），声明 android/ios/ohos。
-  # 迁移说明与回滚方式：docs/ohos-pubspec-changes.md
+  # 迁移说明与回滚方式：docs/ohos/plugin-matrix.md
   #
   # pub.dev 官方 OHOS 联邦实现（dartPluginClass 注册，Flutter 3.3+/3.16+ 即可）
   path_provider_ohos: ^2.2.1
@@ -250,7 +250,7 @@ dependency_overrides:
   # ==================== HarmonyOS / OHOS：CPF-Flutter 官方适配 fork ====================
   # 全部为 gitcode.com/CPF-Flutter 组织下的 OHOS 分支/TAG（已用 git ls-remote + raw
   # pubspec 验证存在；TAG 命名规则 <上游版本>-ohos-<x.y.z>）。改动原因、版本差与回滚
-  # 方式见 docs/ohos-pubspec-changes.md。回滚：删除下面 config 段，恢复
+  # 方式见 docs/ohos/plugin-matrix.md。回滚：删除下面 config 段，恢复
   # `device_info_plus: 12.3.0`，然后 flutter pub get。
   # 注意：单 pubspec 临时策略会让这 11 个包在 Android/iOS/桌面端也使用 fork 版本
   #（inappwebview 6.2.0-beta.3→6.1.5、mobile_scanner 7.4.2→7.1.4 等），后续拆双

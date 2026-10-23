@@ -41,7 +41,7 @@ List<SettingsGroup> buildNetworkGroups(BuildContext context) {
       items: [
         // DOH 代理依赖 core/doh_proxy 的 Rust 原生实现（本地网关 + 证书注入）。
         // HarmonyOS 上该原生库未移植，开关点了也不会生效，故不展示
-        // （见 docs/ohos-port-report.md §6「OHOS 上降级/禁用的能力」）。
+        // （见 docs/ohos/architecture.md §6「OHOS 上降级/禁用的能力」）。
         if (OhosCompat.supportsDohProxy)
           CustomModel(
             id: 'dohSettings',
