@@ -39,6 +39,7 @@ import { BusinessError } from '@ohos.base';
 import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
 import wantAgent from '@ohos.app.ability.wantAgent';
 import common from '@ohos.app.ability.common';
+import Want from '@ohos.app.ability.Want';
 import pasteboard from '@ohos.pasteboard';
 
 const DOMAIN: number = 0x0F1D;
@@ -208,6 +209,23 @@ export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHand
         });
         return;
       }
+      if (call.method === 'openExternalUrl') {
+        // 用系统浏览器打开链接（url_launcher 的 externalApplication 在
+        // HarmonyOS 上不可用，canLaunchUrl 恒 false → 这里走 startAbility）
+        const target = call.argument('url') as string;
+        if (target === undefined || target === null || target.length === 0) {
+          result.error('OPEN_URL_BAD_ARGS', 'url is required', null);
+          return;
+        }
+        this.openExternalUrl(target).then((opened) => {
+          result.success(opened);
+        }).catch((e: BusinessError) => {
+          const detail: string = `code=${e.code} msg=${e.message}`;
+          console.error(`FluxdoBridge openExternalUrl failed: ${detail}`);
+          result.success(false);
+        });
+        return;
+      }
       result.notImplemented();
     } catch (e) {
       const err = e as Error;
@@ -220,6 +238,28 @@ export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHand
       );
       result.error('FLUXDO_OHOS_BRIDGE_ERROR', err.message, null);
     }
+  }
+
+  /**
+   * 用系统浏览器（或能处理该 URL 的应用）打开链接。
+   *
+   * HarmonyOS 上 url_launcher 的 `LaunchMode.externalApplication` 没有实现，
+   * `canLaunchUrl` 也恒为 false，表现为「无法打开外部浏览器」。
+   * 这里直接发一个 viewData/隐式 Want，由系统匹配浏览器。
+   */
+  private async openExternalUrl(url: string): Promise<boolean> {
+    const ctx = FluxdoBridgePlugin.abilityContext;
+    if (ctx === undefined) {
+      console.error('FluxdoBridge openExternalUrl: abilityContext 未注入');
+      return false;
+    }
+    const want: Want = {
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: url,
+    };
+    await ctx.startAbility(want);
+    return true;
   }
 
   /**

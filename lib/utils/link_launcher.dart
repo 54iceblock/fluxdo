@@ -9,6 +9,7 @@ import '../config/site_customization.dart';
 import '../constants.dart';
 import '../pages/chat/channel/chat_channel_page.dart';
 import '../pages/image_viewer_page.dart';
+import '../pages/topic_detail_page/topic_detail_page.dart';
 import '../pages/webview_page.dart';
 import '../providers/preferences_provider.dart';
 import '../providers/category_provider.dart';
@@ -19,6 +20,7 @@ import '../widgets/content/discourse_html_content/image_utils.dart';
 import '../widgets/layout/home_workspace_scope.dart';
 import 'discourse_url_parser.dart';
 import 'link_security.dart';
+import 'platform_utils.dart';
 import 'url_helper.dart';
 
 const _browserChannel = MethodChannel('com.github.lingyan000.fluxdo/browser');
@@ -203,9 +205,25 @@ Future<void> launchContentLink(
       );
       return;
     }
-    // 没有回调时用 WebView 打开
-    final fullUrl = UrlHelper.resolveUrl(url);
-    WebViewPage.open(context, fullUrl);
+    // 没有自定义回调时，站内帖子应进原生话题详情页，而不是塞进内置
+    // WebView：宽屏先压入平行视界栈，窄屏/独立页面直接全屏 push。
+    if (EmbeddedStackScope.maybePushTopic(
+      context,
+      topicId: topicInfo.topicId,
+      initialTitle: topicInfo.slug,
+      scrollToPostNumber: topicInfo.postNumber,
+    )) {
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TopicDetailPage(
+          topicId: topicInfo.topicId,
+          scrollToPostNumber: topicInfo.postNumber,
+        ),
+      ),
+    );
     return;
   }
 
@@ -265,6 +283,29 @@ Future<void> launchContentLink(
 Future<bool> launchInExternalBrowser(String url) async {
   final uri = Uri.tryParse(url);
   if (uri == null) return false;
+
+  // HarmonyOS：url_launcher 的 externalApplication 没有实现（canLaunchUrl
+  // 恒为 false，表现为「无法打开外部浏览器」）。改走自研 ArkTS 桥，
+  // 用 startAbility(viewData) 让系统匹配浏览器。
+  if (PlatformUtils.isOhos) {
+    try {
+      const channel = MethodChannel('com.fluxdo/ohos');
+      final opened = await channel.invokeMethod<bool>(
+        'openExternalUrl',
+        {'url': url},
+      );
+      if (opened == true) return true;
+    } catch (e) {
+      debugPrint('[LinkLauncher][OHOS] openExternalUrl 失败: $e');
+    }
+    // 桥失败时仍尝试 url_launcher（部分版本可用）
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   if (Platform.isAndroid) {
     try {

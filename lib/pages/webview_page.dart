@@ -7,6 +7,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:m3e_ui/m3e_ui.dart';
 import '../utils/frame_jank_monitor.dart';
+import '../utils/discourse_url_parser.dart';
 import '../utils/link_launcher.dart';
 import '../services/deep_link_service.dart';
 import '../services/toast_service.dart';
@@ -19,6 +20,8 @@ import '../widgets/common/app_link_confirm_dialog.dart';
 import '../providers/web_bookmark_provider.dart';
 import '../providers/web_history_provider.dart';
 import '../providers/download_provider.dart';
+import '../providers/selected_topic_provider.dart';
+import 'topic_detail_page/topic_detail_page.dart';
 import 'package:common_ui/common_ui.dart';
 import '../l10n/s.dart';
 import '../utils/dialog_utils.dart';
@@ -402,6 +405,36 @@ class _WebViewPageState extends ConsumerState<WebViewPage> {
     if (url == null) return NavigationActionPolicy.ALLOW;
 
     final scheme = url.scheme.toLowerCase();
+
+    // 站内帖子/用户链接：直接跳原生页面，不再塞进内置 WebView。
+    // （Markdown 正文里的 linux.do/t/... 链接、站内跳转都属于这一类）
+    if ((scheme == 'http' || scheme == 'https') &&
+        isInternalUrlString(url.toString())) {
+      final topic = DiscourseUrlParser.parseTopic(url.path);
+      if (topic != null) {
+        if (!EmbeddedStackScope.maybePushTopic(
+          context,
+          topicId: topic.topicId,
+          initialTitle: topic.slug,
+          scrollToPostNumber: topic.postNumber,
+        )) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => TopicDetailPage(
+                topicId: topic.topicId,
+                scrollToPostNumber: topic.postNumber,
+              ),
+            ),
+          );
+        }
+        return NavigationActionPolicy.CANCEL;
+      }
+      final user = DiscourseUrlParser.parseUser(url.path);
+      if (user != null) {
+        EmbeddedStackScope.openProfile(context, user.username);
+        return NavigationActionPolicy.CANCEL;
+      }
+    }
 
     // HTTP(S) 和内部 scheme 正常加载
     if (_allowedSchemes.contains(scheme)) {
