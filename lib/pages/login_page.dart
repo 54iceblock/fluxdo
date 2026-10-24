@@ -12,6 +12,7 @@ import '../services/network/cookie/cookie_jar_service.dart';
 import '../services/toast_service.dart';
 import '../services/user_api_key_login_flow.dart';
 import '../utils/blur_config.dart';
+import '../utils/platform_utils.dart';
 import '../widgets/auth/webview_login_dialog.dart';
 import '../widgets/auth/login_form.dart';
 import '../widgets/auth/two_factor_dialog.dart';
@@ -144,6 +145,16 @@ class _LoginPageState extends State<LoginPage>
   /// [CfChallengeInterceptor._syncCookiesOnce] 触发, 我们直接调 showManualVerify
   /// 不经过 interceptor, 所以要手动 sync, 不然 jar 还是空)。
   Future<bool> _ensureCfClearance() async {
+    // HarmonyOS：cf_clearance 是 HttpOnly，ArkWeb 的 WebCookieManager 读不回来，
+    // jar 里基本永远拿不到它；但 OHOS 的请求都经由 ArkWeb 网络栈（webview adapter）
+    // 发出，由 ArkWeb 自己携带 cookie，不需要 jar 里有 cf_clearance。
+    // 这里若继续用「jar 无 clearance 就弹手动验证」的门禁，会变成必挂的死路
+    // （验证框秒关 → 直接提示「Cloudflare 验证未完成」）。
+    if (PlatformUtils.isOhos) {
+      debugPrint('[Login][OHOS] 跳过 jar cf_clearance 门禁（ArkWeb 自带 cookie）');
+      return true;
+    }
+
     final jar = CookieJarService();
     var clearance = await jar.getCfClearance();
     if (clearance != null && clearance.isNotEmpty) return true;

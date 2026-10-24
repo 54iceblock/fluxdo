@@ -8,6 +8,7 @@ import 'package:pointycastle/export.dart';
 import 'package:uuid/uuid.dart';
 
 import '../constants.dart';
+import '../utils/platform_utils.dart';
 import 'log/log_writer.dart';
 import 'network/cookie/cookie_jar_service.dart';
 import 'storage/resilient_secure_storage.dart';
@@ -553,6 +554,28 @@ class UserApiKeyService {
       final ok = afterToken != null &&
           afterToken.isNotEmpty &&
           afterToken != beforeToken;
+      if (!ok && PlatformUtils.isOhos) {
+        // HarmonyOS：_t 是 HttpOnly，ArkWeb 的 WebCookieManager 只暴露 Cookie
+        // 头字符串、读不到 HttpOnly cookie；而 OHOS 上兑换请求是经 ArkWeb 网络栈
+        // (webview adapter) 发出的，会话其实已经在 ArkWeb 内建立。
+        // 因此这里不再依赖「jar 里出现新 _t」，改用同一个 dio（仍是 webview
+        // adapter，ArkWeb 自动带 _t）请求 /session/current.json 验证会话。
+        // 返回空字符串表示「登录成功但 jar 无 _t」，调用方
+        // finalizeNativeLoginSuccess 容忍空 token。
+        final verified = await _verifyOhosWebViewSession(dio);
+        if (verified) {
+          _log('info', 'otp_redeem_ohos_session_ok',
+              'OHOS: _t 未落 jar，但 ArkWeb 会话已建立，按登录成功处理', {
+            'statusCode': response.statusCode,
+            'hasTokenAfter': afterToken != null && afterToken.isNotEmpty,
+          });
+          return '';
+        }
+        _log('warning', 'otp_redeem_ohos_session_failed',
+            'OHOS: _t 未落 jar 且 ArkWeb 会话验证失败', {
+          'statusCode': response.statusCode,
+        });
+      }
       _log(ok ? 'info' : 'warning', 'otp_redeem_finished',
           ok ? 'OTP 兑换成功,已获得新 _t' : 'OTP 兑换后未见新 _t', {
         'statusCode': response.statusCode,
@@ -567,6 +590,26 @@ class UserApiKeyService {
         'errorType': e.type.toString(),
       });
       return null;
+    }
+  }
+
+  /// OHOS 专用：`_t` 是 HttpOnly，Dart 侧读不到；用同一 dio（webview adapter）
+  /// 请求 /session/current.json，由 ArkWeb 自己携带 cookie，判断会话是否已建立。
+  Future<bool> _verifyOhosWebViewSession(Dio dio) async {
+    try {
+      final response = await dio.get(
+        '/session/current.json',
+        options: Options(
+          extra: const {'skipAuthCheck': true, 'skipCsrf': true},
+        ),
+      );
+      final data = response.data;
+      final currentUser = data is Map ? data['current_user'] : null;
+      return currentUser is Map && currentUser['username'] != null;
+    } catch (e) {
+      _log('warning', 'otp_redeem_ohos_verify_error',
+          'ArkWeb 会话验证异常: $e');
+      return false;
     }
   }
 
