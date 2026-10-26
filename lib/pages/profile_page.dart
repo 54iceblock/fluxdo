@@ -9,7 +9,6 @@ import '../providers/selected_topic_provider.dart';
 import '../providers/shortcut_provider.dart';
 import '../widgets/desktop_refresh_indicator.dart';
 import '../services/discourse_cache_manager.dart';
-import 'webview_page.dart';
 import 'login_page.dart';
 import '../widgets/auth/qr_login_sheet.dart';
 import 'browsing_history_page.dart';
@@ -46,6 +45,7 @@ import '../services/cdk_oauth_service.dart';
 import '../l10n/s.dart';
 import '../navigation/nav_action_bus.dart';
 import '../services/toast_service.dart';
+import 'user_preferences/user_preferences_page.dart';
 import '../utils/dialog_utils.dart';
 import '../utils/responsive.dart';
 import '../services/emoji_handler.dart';
@@ -333,32 +333,20 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     }
   }
 
+  /// 打开「偏好设置」。
+  ///
+  /// 上游原本直接把网页版 `/u/<username>/preferences/account` 塞进内置 WebView；
+  /// 这里改成原生页面（资料 / 通知 / 跟踪 / 界面可直接编辑保存），
+  /// 邮箱、密码、两步验证等涉及额外校验的页面在页面内提供网页版入口。
   Future<void> _openProfileEdit() async {
     final username = ref.read(currentUserProvider).value?.username;
     if (username != null && username.isNotEmpty) {
-      await WebViewPage.open(
-        context, 
-        'https://linux.do/u/$username/preferences/account',
-        title: context.l10n.profile_editProfile,
-        injectCss: '''
-          .new-user-content-wrapper {
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 100% !important;
-            height: 100% !important;
-            z-index: 100 !important;
-            background: var(--d-content-background, var(--secondary)) !important;
-            overflow-y: auto !important;
-            padding: 20px !important;
-            box-sizing: border-box !important;
-          }
-          .d-header {
-            display: none !important;
-          }
-        ''',
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => UserPreferencesPage(username: username),
+        ),
       );
-      
+
       // 返回后静默刷新数据
       if (mounted) {
         ref.read(currentUserProvider.notifier).refreshSilently().ignore();
