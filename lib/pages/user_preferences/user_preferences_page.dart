@@ -28,7 +28,7 @@ class UserPreferencesPage extends StatefulWidget {
 class _UserPreferencesPageState extends State<UserPreferencesPage>
     with SingleTickerProviderStateMixin {
   final _service = DiscourseService();
-  late final TabController _tabs = TabController(length: 7, vsync: this)
+  late final TabController _tabs = TabController(length: 6, vsync: this)
     ..addListener(() {
       if (!_tabs.indexIsChanging) setState(() {});
     });
@@ -239,7 +239,6 @@ class _UserPreferencesPageState extends State<UserPreferencesPage>
                   Tab(text: '电子邮件'),
                   Tab(text: '通知'),
                   Tab(text: '跟踪'),
-                  Tab(text: '界面'),
                   Tab(text: '更多'),
                 ],
               ),
@@ -256,7 +255,6 @@ class _UserPreferencesPageState extends State<UserPreferencesPage>
                 _tabEmails(),
                 _tabNotifications(),
                 _tabTracking(),
-                _tabInterface(),
                 _tabMore(),
               ],
             ),
@@ -636,35 +634,6 @@ class _UserPreferencesPageState extends State<UserPreferencesPage>
   Widget _tabNotifications() {
     return _page([
       _section(
-        title: '邮件',
-        children: [
-          _switchTile(
-            title: '活动摘要邮件',
-            subtitle: '定期汇总你错过的内容',
-            optionKey: 'email_digests',
-            fallback: true,
-          ),
-          _dropdownTile(
-            title: '邮件通知频率',
-            optionKey: 'email_level',
-            fallback: 1,
-            options: const {0: '总是', 1: '仅不在时', 2: '从不'},
-          ),
-          _dropdownTile(
-            title: '私信邮件通知',
-            optionKey: 'email_messages_level',
-            fallback: 1,
-            options: const {0: '总是', 1: '仅不在时', 2: '从不'},
-          ),
-          _switchTile(title: '以邮件列表模式接收', optionKey: 'mailing_list_mode'),
-          _switchTile(
-            title: '回复邮件包含原文',
-            optionKey: 'email_in_reply_to',
-            fallback: true,
-          ),
-        ],
-      ),
-      _section(
         title: '私信与隐私',
         children: [
           _switchTile(
@@ -685,9 +654,11 @@ class _UserPreferencesPageState extends State<UserPreferencesPage>
         ],
       ),
       _section(
-        title: '时间表',
+        title: '邮件通知',
+        hint: '摘要邮件、邮件频率、邮件列表模式、免打扰时段等只影响邮箱，'
+            'App 内不可见，仍在网页版设置',
         children: [
-          _webTile('通知时间表（免打扰时段）', 'notifications', subtitle: '网页版'),
+          _webTile('邮件通知与时间表', 'notifications', subtitle: '网页版'),
         ],
       ),
     ]);
@@ -718,12 +689,6 @@ class _UserPreferencesPageState extends State<UserPreferencesPage>
             fallback: 2,
             options: const {1: '常规', 2: '跟踪', 3: '关注'},
           ),
-          _dropdownTile(
-            title: '点赞通知',
-            optionKey: 'like_notification_frequency',
-            fallback: 2,
-            options: const {0: '总是', 1: '每天一次', 2: '每周一次', 3: '从不'},
-          ),
           _switchTile(
             title: '链接到他人帖子时通知对方',
             optionKey: 'notify_on_linked_posts',
@@ -744,40 +709,6 @@ class _UserPreferencesPageState extends State<UserPreferencesPage>
     ]);
   }
 
-  // ---------------- 界面 ----------------
-  Widget _tabInterface() {
-    return _page([
-      _section(
-        title: '阅读与排版',
-        children: [
-          _dropdownTile(
-            title: '字号',
-            optionKey: 'text_size',
-            fallback: 0,
-            options: const {0: '普通', 1: '较大', 2: '最大'},
-          ),
-          _switchTile(title: '引用时折叠长内容', optionKey: 'enable_quoting', fallback: true),
-          _switchTile(title: '智能列表', optionKey: 'enable_smart_lists', fallback: true),
-          _switchTile(
-            title: '外部链接在新标签页打开',
-            optionKey: 'external_links_in_new_tab',
-          ),
-          _switchTile(
-            title: '自动取消置顶已读话题',
-            optionKey: 'automatically_unpin_topics',
-            fallback: true,
-          ),
-        ],
-      ),
-      _section(
-        title: '外观',
-        children: [
-          _webTile('主题 / 配色方案 / 导航菜单', 'interface', subtitle: '网页版'),
-        ],
-      ),
-    ]);
-  }
-
   // ---------------- 更多 ----------------
   Widget _tabMore() {
     return _page([
@@ -787,7 +718,6 @@ class _UserPreferencesPageState extends State<UserPreferencesPage>
         children: [
           _webTile('安全性（两步验证 / 安全密钥 / 会话）', 'security'),
           _webTile('用户（静音/忽略列表）', 'users'),
-          _webTile('导航菜单', 'navigation-menu'),
           _webTile('日历', 'calendar'),
           _webTile('保存的搜索', 'saved-searches'),
           _webTile('聊天', 'chat'),
@@ -800,9 +730,10 @@ class _UserPreferencesPageState extends State<UserPreferencesPage>
           Padding(
             padding: EdgeInsets.only(bottom: 8),
             child: Text(
-              '原生编辑：个人资料、通知、跟踪、界面。\n'
-              '只读展示：用户名、邮箱、关联账号。\n'
-              '其余子页保留网页版入口，行为与浏览器一致。',
+              '原生编辑：个人资料、隐私/私信、跟踪默认行为。\n'
+              '只读展示：用户名、头像、邮箱、关联账号。\n'
+              '界面外观、邮件通知、安全性等只影响网页/邮箱的选项，'
+              '仍走网页版入口。',
               style: TextStyle(fontSize: 12),
             ),
           ),
