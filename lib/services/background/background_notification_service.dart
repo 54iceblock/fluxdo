@@ -1,21 +1,18 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../../l10n/s.dart';
-import '../log/log_writer.dart';
-import '../../utils/platform_utils.dart';
 import 'notification_task_handler.dart';
 import 'ios_background_fetch.dart';
-import 'ohos_background_task.dart';
 
 /// 后台通知统一管理入口
 ///
 /// 根据平台选择不同的后台保活策略：
 /// - Android: 前台服务保活进程，主 Isolate 的 MessageBus 长轮询继续运行
 /// - iOS: BGTaskScheduler 定期唤醒，单次 HTTP 拉取检查新通知
-/// - HarmonyOS: 申请「数据同步」长时任务保活进程（单次最长约 10 分钟，可重复申请）
+/// - HarmonyOS: 不做保活（系统长时任务会在通知栏常驻条目，本移植已移除）
 /// - 桌面: 无需特殊处理
 class BackgroundNotificationService {
   static final BackgroundNotificationService _instance =
@@ -43,12 +40,9 @@ class BackgroundNotificationService {
       await _startAndroidForegroundService();
     } else if (Platform.isIOS) {
       await _registerIOSPeriodicTask(userId);
-    } else if (PlatformUtils.isOhos) {
-      // HarmonyOS：申请数据同步长时任务，避免切后台后进程被挂起
-      final ok = await OhosBackgroundTask.instance.start();
-      _logOhosKeepAlive(ok ? 'started' : 'failed');
     }
-    // 桌面平台无需操作
+    // HarmonyOS：已移除系统长时任务保活（用户反馈会常驻一条通知栏条目、
+    // 实际收益有限）。切后台后由系统正常挂起，回前台恢复轮询即可。
   }
 
   /// 禁用后台通知（App 回前台时调用）
@@ -61,24 +55,6 @@ class BackgroundNotificationService {
       await _stopAndroidForegroundService();
     } else if (Platform.isIOS) {
       await _cancelIOSTasks();
-    } else if (PlatformUtils.isOhos) {
-      await OhosBackgroundTask.instance.stop();
-      _logOhosKeepAlive('stopped');
-    }
-  }
-
-  /// 记录 HarmonyOS 长时任务状态（便于验证后台保活是否生效）。
-  void _logOhosKeepAlive(String state) {
-    try {
-      LogWriter.instance.write(<String, dynamic>{
-        'level': state == 'started' ? 'info' : 'warning',
-        'type': 'background',
-        'event': 'ohos_continuous_task',
-        'state': state,
-        'platform': 'ohos',
-      });
-    } catch (_) {
-      // 日志失败不影响流程
     }
   }
 
