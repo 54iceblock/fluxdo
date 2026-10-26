@@ -53,6 +53,7 @@ import 'search_page.dart';
 import 'follow_list_page.dart';
 import 'image_viewer_page.dart';
 import 'badge_page.dart';
+import 'user_preferences/user_preferences_page.dart';
 import 'chat/channel/chat_channel_page.dart';
 import 'package:common_ui/common_ui.dart';
 import '../l10n/s.dart';
@@ -2652,6 +2653,16 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage>
         icon: const Icon(Symbols.more_vert_rounded),
         onSelected: (value) {
           switch (value) {
+            case 'preferences':
+              // 自己的主页才有：进原生「偏好设置」（资料/通知/跟踪）
+              final username = _user?.username ?? widget.username;
+              if (username.isNotEmpty) {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => UserPreferencesPage(username: username),
+                  ),
+                );
+              }
             case 'about':
               _showUserInfo();
             case 'share':
@@ -2667,6 +2678,21 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage>
         itemBuilder: (context) {
           final theme = Theme.of(context);
           return [
+            if (isOwnProfile)
+              PopupMenuItem<String>(
+                value: 'preferences',
+                child: Row(
+                  children: [
+                    Icon(
+                      Symbols.manage_accounts_rounded,
+                      size: 20,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                    const SizedBox(width: 12),
+                    const Text('偏好设置'),
+                  ],
+                ),
+              ),
             PopupMenuItem<String>(
               value: 'about',
               child: Row(

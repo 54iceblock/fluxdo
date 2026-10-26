@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../pages/topic_detail_page/topic_detail_page.dart';
+import '../pages/user_preferences/user_preferences_page.dart';
 import '../pages/user_profile_page.dart';
 import '../pages/webview_login_page.dart';
 import '../pages/webview_page.dart';
 import '../constants.dart';
+import '../providers/discourse_providers.dart';
 import '../utils/discourse_url_parser.dart';
 import '../utils/platform_utils.dart';
 import 'discourse/discourse_service.dart';
@@ -188,6 +191,7 @@ class DeepLinkService {
   /// - fluxdo://topic/123
   /// - fluxdo://topic/123/5 (指定楼层)
   /// - fluxdo://user/username
+  /// - fluxdo://preferences (打开「偏好设置」)
   void _handleCustomScheme(BuildContext context, Uri uri) {
     final pathSegments = [
       if (uri.host.isNotEmpty) uri.host,
@@ -197,6 +201,30 @@ class DeepLinkService {
     if (pathSegments.isEmpty) return;
 
     switch (pathSegments[0].toLowerCase()) {
+      case 'preferences':
+      case 'settings':
+        // 偏好设置：优先用当前登录用户（provider 已从 preloaded/接口拿到），
+        // 拿不到再退回本地保存的用户名；都没有就静默忽略。
+        unawaited(() async {
+          String? username;
+          try {
+            final container = ProviderScope.containerOf(context, listen: false);
+            username = container.read(currentUserProvider).value?.username;
+          } catch (_) {
+            // 不在 ProviderScope 里（极少见），走下面的本地兜底
+          }
+          if (username == null || username.isEmpty) {
+            username = await DiscourseService().getUsername();
+          }
+          if (username == null || username.isEmpty) return;
+          if (!context.mounted) return;
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => UserPreferencesPage(username: username!),
+            ),
+          );
+        }());
+        return;
       case 'topic':
         if (pathSegments.length >= 2) {
           final topicId = int.tryParse(pathSegments[1]);

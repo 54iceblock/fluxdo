@@ -67,6 +67,7 @@ part '_login.dart';
 part '_topics.dart';
 part '_posts.dart';
 part '_users.dart';
+part '_preferences.dart';
 part '_search.dart';
 part '_notifications.dart';
 part '_uploads.dart';
@@ -134,6 +135,7 @@ class DiscourseService extends _DiscourseServiceBase
         _TopicsMixin,
         _PostsMixin,
         _UsersMixin,
+        _PreferencesMixin,
         _SearchMixin,
         _NotificationsMixin,
         _UploadsMixin,
