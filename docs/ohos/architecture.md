@@ -35,8 +35,11 @@ Dart 侧平台适配集中在两处：
 1. **官方/社区已有 OHOS 实现**：直接用（`path_provider_ohos`、`shared_preferences_ohos`、
    `url_launcher_ohos`、`sqflite_ohos`、`file_picker`、`share_plus`、`mobile_scanner`、
    `flutter_local_notifications`、`saver_gallery`、`image_picker_harmonyos` 等）。
-2. **无 OHOS 实现 → 自研 ArkTS 桥或降级**：时区、剪贴板、通知初始化、后台长时任务等（见 §4）。
+2. **无 OHOS 实现 → 自研 ArkTS 桥或降级**：时区、剪贴板、通知初始化、系统浏览器打开等（见 §4）。
 3. **上游 Flutter 引擎能力**：图片解码、输入法、WebView（ArkWeb）等由引擎/系统提供。
+
+> 后台保活（系统长时任务）已移除：它会常驻通知栏且收益有限，切后台交给系统正常挂起；
+> 通知权限也从「启动即申请」改为按需申请。
 
 `packages/` 下有 5 个 vendored 包（`rhttp`、`native_animated_image`、`file_picker`、
 `share_plus`、`flutter_math_fork`、`just_audio_harmonyos`），用于：
@@ -80,13 +83,12 @@ MethodChannel：`com.fluxdo/ohos`
 | `getSystemLocale` | 系统语言 |
 | `probeAvif` / `decodeAvif` | AVIF 能力探测与 ImageKit 解码（备用路径） |
 | `writeImageToPasteboard` / `readClipboardHtml` | 剪贴板写图片；读 HTML（受系统权限限制，失败降级） |
-| `startContinuousTask` / `stopContinuousTask` | 后台长时任务（`backgroundTaskManager`，DATA_TRANSFER） |
+| `openExternalUrl` | 用系统浏览器打开链接（`url_launcher` 在 OHOS 无实现，走 `startAbility(viewData)`） |
 
 关键点：
 
-- `startBackgroundRunning` 需要 **UIAbilityContext**：由 `EntryAbility` 在注册插件前注入
+- `openExternalUrl` 需要 **UIAbilityContext**：由 `EntryAbility` 在注册插件前注入
   `FluxdoBridgePlugin.abilityContext`；
-- 长时任务单模式重载 `(ctx, BackgroundMode.DATA_TRANSFER, wantAgent)`，数组重载要 string[]（枚举是 number，会编译失败）；
 - 剪贴板「写图片」路径：PNG → `image.createPixelMap` → `pasteboard.createData(MIMETYPE_PIXELMAP)`；
 - 剪贴板「读 HTML」：`getData().getPrimaryHtml()`；`READ_PASTEBOARD` 属 system_basic 权限，
   普通应用证书无法授予，**不要声明**（否则安装直接失败），代码按失败降级为纯文本。

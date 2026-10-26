@@ -46,9 +46,9 @@
 | 插件/库 | 状态 | 说明 |
 |---|---|---|
 | `mobile_scanner` | 已有实现 | 相机扫码（CPF OHOS 分支），扫码登录页相机预览正常 |
-| `flutter_local_notifications` | 已有实现 | 本地通知（系统通知开关需用户手动开） |
-| `flutter_foreground_task` / `workmanager` | 降级 | 无 OHOS 实现；改用系统长时任务（自研 ArkTS 桥） |
-| `背景保活` | 自研 | `backgroundTaskManager` DATA_TRANSFER 长时任务 |
+| `flutter_local_notifications` | 已有实现 | 本地通知（权限改为按需申请，系统通知开关仍需用户在弹窗/设置里允许） |
+| `flutter_foreground_task` / `workmanager` | 降级 | 无 OHOS 实现；**不保活**（已移除系统长时任务），切后台由系统挂起 |
+| `背景保活` | 已移除 | 原 `backgroundTaskManager` DATA_TRANSFER 长时任务会在通知栏常驻，收益有限，故删除 |
 | `wakelock_plus_harmonyos` | 已有实现 | 屏幕常亮 |
 | `screen_brightness_ohos` | 已有实现 | 屏幕亮度 |
 | `volume_controller` | 已有实现 | 音量控制 |
