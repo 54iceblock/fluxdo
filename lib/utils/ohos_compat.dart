@@ -67,9 +67,9 @@ class OhosCompat {
   static bool get supportsLocalNotifications => true;
 
   /// 是否支持后台保活（flutter_foreground_task / workmanager）
-  /// OHOS：用系统长时任务（backgroundTaskManager 的 DATA_TRANSFER 模式）自建保活，
-  /// 见 lib/services/background/ohos_background_task.dart。
-  static bool get supportsBackgroundTasks => true;
+  /// OHOS：**不支持**——系统长时任务会在通知栏常驻一条「正在运行」条目，
+  /// 收益有限，本移植已移除（切后台交给系统正常挂起）。
+  static bool get supportsBackgroundTasks => !isOhos;
 
   /// 是否支持应用内更新安装（ota_update / APK 安装）
   /// OHOS：三方应用不能静默安装 HAP，改为引导跳转应用市场。
