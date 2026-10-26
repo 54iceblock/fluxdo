@@ -36,8 +36,6 @@ import i18n from '@ohos.i18n';
 import hilog from '@ohos.hilog';
 import image from '@ohos.multimedia.image';
 import { BusinessError } from '@ohos.base';
-import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
-import wantAgent from '@ohos.app.ability.wantAgent';
 import common from '@ohos.app.ability.common';
 import Want from '@ohos.app.ability.Want';
 import pasteboard from '@ohos.pasteboard';
@@ -59,11 +57,8 @@ const FALLBACK_TIMEZONE: string = 'UTC';
 export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHandler {
   private channels: Array<MethodChannel> = [];
 
-  /** EntryAbility 在注册插件前写入，长时任务需要用 UIAbilityContext。 */
+  /** EntryAbility 在注册插件前写入；外部浏览器跳转等能力需要 UIAbilityContext。 */
   static abilityContext: common.UIAbilityContext | undefined = undefined;
-
-  /** 已启动的长时任务是否在运行（用于幂等）。 */
-  private continuousTaskRunning: boolean = false;
 
   getUniqueClassName(): string {
     return 'FluxdoBridgePlugin';
@@ -158,27 +153,6 @@ export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHand
           const detail: string = `code=${e.code} msg=${e.message}`;
           hilog.warn(DOMAIN, TAG, 'decodeAvif failed: %{public}s', detail);
           result.error('AVIF_DECODE_FAILED', detail, null);
-        });
-        return;
-      }
-      if (call.method === 'startContinuousTask') {
-        // 后台保活：申请长时任务，避免切后台后进程被挂起（消息轮询继续跑）。
-        this.startContinuousTask().then(() => {
-          result.success(true);
-        }).catch((e: BusinessError) => {
-          const detail: string = `code=${e.code} msg=${e.message}`;
-          console.error(`FluxdoBridge startContinuousTask failed: ${detail}`);
-          result.error('CONTINUOUS_TASK_FAILED', detail, null);
-        });
-        return;
-      }
-      if (call.method === 'stopContinuousTask') {
-        this.stopContinuousTask().then(() => {
-          result.success(true);
-        }).catch((e: BusinessError) => {
-          const detail: string = `code=${e.code} msg=${e.message}`;
-          console.error(`FluxdoBridge stopContinuousTask failed: ${detail}`);
-          result.error('CONTINUOUS_TASK_STOP_FAILED', detail, null);
         });
         return;
       }
@@ -402,55 +376,7 @@ export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHand
   }
 
   /**
-   * 申请数据同步类长时任务（后台保活）。
-   *
-   * HarmonyOS 上应用切后台后普通进程会被挂起；申请长时任务后可继续运行，
-   * 但**数据同步类任务单次最长约 10 分钟**，到点需重新申请——这里保持简单：
-   * 由 Dart 侧在回前台/再次切后台时重新调用。
-   */
-  private async startContinuousTask(): Promise<void> {
-    if (this.continuousTaskRunning) {
-      return;
-    }
-    const ctx: common.UIAbilityContext | undefined = FluxdoBridgePlugin.abilityContext;
-    if (ctx === undefined) {
-      throw new Error('abilityContext 不可用（EntryAbility 未注入）');
-    }
-    const wantAgentInfo: wantAgent.WantAgentInfo = {
-      wants: [
-        {
-          bundleName: ctx.abilityInfo.bundleName,
-          abilityName: ctx.abilityInfo.name,
-        },
-      ],
-      actionType: wantAgent.OperationType.START_ABILITY,
-      requestCode: 0,
-      actionFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG],
-    };
-    const agent = await wantAgent.getWantAgent(wantAgentInfo);
-    await backgroundTaskManager.startBackgroundRunning(
-      ctx,
-      backgroundTaskManager.BackgroundMode.DATA_TRANSFER,
-      agent
-    );
-    this.continuousTaskRunning = true;
-    console.info('FluxdoBridge continuous task started (dataTransfer)');
-  }
-
-  /** 结束长时任务。 */
-  private async stopContinuousTask(): Promise<void> {
-    if (!this.continuousTaskRunning) {
-      return;
-    }
-    const ctx: common.UIAbilityContext | undefined = FluxdoBridgePlugin.abilityContext;
-    if (ctx === undefined) {
-      throw new Error('abilityContext 不可用（EntryAbility 未注入）');
-    }
-    await backgroundTaskManager.stopBackgroundRunning(ctx);
-    this.continuousTaskRunning = false;
-    console.info('FluxdoBridge continuous task stopped');
-  }
-
+   * 多种 ImageKit 解码姿势依次尝试，兼容不同 ROM 对 AVIF 的支持差异：
   /**
    * 把 PNG 字节写入系统剪贴板（图片富内容）。
    *

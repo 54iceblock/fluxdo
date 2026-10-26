@@ -24,6 +24,9 @@ class LocalNotificationService {
   bool _initialized = false;
   bool _permissionGranted = false;
 
+  /// 是否已向系统请求过通知权限（懒请求，避免每次启动都弹系统授权框）。
+  bool _permissionRequested = false;
+
   /// 初始化通知服务
   Future<void> initialize() async {
     if (_initialized) return;
@@ -63,7 +66,6 @@ class LocalNotificationService {
     debugPrint('[LocalNotification] 初始化完成');
     
     // 请求通知权限（Android 13+ / OHOS 系统通知授权）
-    await _requestPermission();
   }
 
   /// 通知点击回调
@@ -118,8 +120,15 @@ class LocalNotificationService {
     );
   }
 
-  /// 请求通知权限
-  Future<void> _requestPermission() async {
+  /// 确保拿到通知权限（懒请求）。
+  ///
+  /// 只在**真正要弹通知**或用户在设置里主动开启时调用；启动阶段不再请求，
+  /// 避免一进应用就弹系统「允许通知」授权框（HarmonyOS / Android 13+）。
+  /// 返回是否已授权；同一次进程内只请求一次。
+  Future<bool> ensurePermission() async {
+    if (_permissionRequested) return _permissionGranted;
+    _permissionRequested = true;
+
     // Android 13+ 需要运行时通知权限
     final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
@@ -127,7 +136,7 @@ class LocalNotificationService {
       final granted = await androidPlugin.requestNotificationsPermission();
       _permissionGranted = granted ?? false;
       debugPrint('[LocalNotification] Android 权限: $_permissionGranted');
-      return;
+      return _permissionGranted;
     }
 
     // HarmonyOS：弹系统「允许通知」授权框（notificationManager.requestEnableNotification）。
@@ -144,11 +153,12 @@ class LocalNotificationService {
         _permissionGranted = true;
       }
       debugPrint('[LocalNotification] OHOS 权限: $_permissionGranted');
-      return;
+      return _permissionGranted;
     }
 
     // 其余平台默认已授权
     _permissionGranted = true;
+    return _permissionGranted;
   }
 
   /// 显示通知
@@ -165,7 +175,8 @@ class LocalNotificationService {
       await initialize();
     }
 
-    if (!_permissionGranted) {
+    // 懒请求权限：第一次真要弹通知时才向系统申请
+    if (!await ensurePermission()) {
       debugPrint('[LocalNotification] 权限未授予，跳过通知');
       return;
     }
@@ -241,7 +252,7 @@ class LocalNotificationService {
     if (!_initialized) {
       await initialize();
     }
-    if (!_permissionGranted) return;
+    if (!await ensurePermission()) return;
 
     final androidDetails = AndroidNotificationDetails(
       _apkUpdateChannelId,
@@ -294,7 +305,7 @@ class LocalNotificationService {
     if (!_initialized) {
       await initialize();
     }
-    if (!_permissionGranted) return;
+    if (!await ensurePermission()) return;
 
     final androidDetails = AndroidNotificationDetails(
       _apkUpdateChannelId,
