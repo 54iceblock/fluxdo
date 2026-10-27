@@ -68,6 +68,22 @@ robocopy C:\Users\iceblock\fluxdo\docs C:\Users\iceblock\fluxdo\repo\ohos\docs *
 - mock 联调已内置 AVIF 回归用例：`ohos/tools/mock-discourse` 的
   `/mock/avif.avif`（复用 `assets/probe/avif-probe.avif`），首帖自动内嵌该图。
   ⚠️ 图片 URL 必须带 `.avif` 后缀，否则应用按扩展名判定不会走 AVIF 解码器。
+- **外链统一走 ArkTS 桥白名单**（模拟器实测补漏）：`launchExternalLink` 原先末尾
+  只调 `canLaunchUrl` + `launchUrl`，OHOS 上没经过桥，`OhosExternalUrl` 白名单
+  只覆盖了附件/mailto 等少数调用点。`canLaunchUrl` 对 `javascript:` 返回 false 只是
+  「系统无处理程序」，而带处理程序的自定义 scheme 会返回 true 并直接 startAbility
+  绕过白名单。现已在 OHOS 上改为 `_openExternallyOnOhos(url)` 后 return。
+  实测：正文里只有 http(s) 链接会生成可点 span（https 点开 → 确认框 → 系统浏览器），
+  mailto/javascript/自定义 scheme 是纯文本、点击无响应（安全默认，桥白名单是第二道防线）。
+- 图片交互已实测可用（长按菜单）：`查看大图`（AVIF 正常）、`复制图片`（走剪贴板桥，
+  日志可见 pasteboard `OnPasteboardChangedStub# end`）、`保存到相册`（走系统安全控件
+  `photoAccessHelper.showAssetsCreationDialog` 确认框，**不需要**
+  `WRITE_IMAGEVIDEO` 权限 —— 这也是为什么最终 HAP 权限列表里没有相册写权限）。
+- 模拟器联调注意：debug HAP 约 377 MB（release 约 118 MB），在模拟器里连续打开
+  系统浏览器后出现过 QEMU 自身崩溃（`QemuManager.cpp CheckGPUThread ... Elapsed time
+  is below checkInterval`，进程退出码 `0xC0000374` 堆损坏），**不是应用崩溃**
+  （应用侧 hilog 无 JS/native crash、faultlog 无新增）。做长链路手工验证时优先用
+  release 包，或每次只验一件事、验完重启模拟器。
 - 签名配置不再入库：`ohos/build-profile.json5` 的 `signingConfigs` 必须为空数组，
   提交前跑 `dart tool/check_no_secrets.dart`（`just check-secrets`）。
 - git 依赖全部锁定到 commit SHA：`dart tool/check_ohos_pubspec.dart`
