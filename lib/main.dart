@@ -319,11 +319,10 @@ Future<void> _probeOhosNotification() async {
   try {
     final service = LocalNotificationService();
     await service.initialize();
-    await service.show(
-      title: 'FluxDO 通知测试',
-      body: 'HarmonyOS 本地通知链路正常',
-    );
-    _logNotificationProbe('ok', null);
+    // 探针只验证插件初始化，**不主动 publish**：HarmonyOS 首次 publish 会弹系统
+    // 「允许通知」授权框，debug 包一冷启动就弹，容易被误判成应用乱索权（也干扰
+    // 人工测试其他功能）。通知发布链路改为在设置页手动触发/真机人工验证。
+    _logNotificationProbe('init-ok', null);
   } catch (e) {
     _logNotificationProbe('error', '$e');
   }

@@ -195,11 +195,11 @@ dependencies:
       url: https://github.com/ClosedHarmony/flutter_secure_storage_ohos.git
       # 原 ref: main（2026-10-26 锁定）
       ref: 545fb022eed8ce7891028d4851a617b9a8328177
+  # vendored（源 ClosedHarmony/record_ohos @ 851a667）：上游插件在引擎 attach 时
+  # 无条件申请麦克风权限 → App 冷启动就弹授权框（审核不合格）。本地副本改为
+  # 「点录音才申请」，见 packages/record_ohos/VENDOR.md。
   record_ohos:
-    git:
-      url: https://github.com/ClosedHarmony/record_ohos.git
-      # 原 ref: main（2026-10-26 锁定）
-      ref: 851a667b5665611b068533e52ea16d06461a956f
+    path: packages/record_ohos
   # gal 无 OHOS 实现；saver_gallery 5.x 起支持 OHOS（内部走 SaveButton，无需媒体库权限）。
   saver_gallery: ^5.1.0
 

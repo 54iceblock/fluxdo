@@ -83,7 +83,7 @@ flutter pub get          # 首次会 clone 12 个 git 仓库到 PUB_CACHE，耗�
 | wakelock_plus_harmonyos | 0.0.1 | pub.dev（Wayaer） | wakelock_plus 1.3.3 | 播放防熄屏 |
 | package_info_plus_harmonyos | 0.0.1 | pub.dev（Wayaer） | package_info_plus 8.3.1 | 与项目锁定 8.x 兼容（PI 3.2.1） |
 | flutter_secure_storage_ohos | 1.0.0 | `github.com/ClosedHarmony/flutter_secure_storage_ohos` ref `main` → 锁定 `545fb02` | flutter_secure_storage 10.3.4 | 原生-only，通道名与官方一致；注：pub.dev 上同名 1.0.0 要求 Dart <3.0，不可用 |
-| record_ohos | 1.0.0 | `github.com/ClosedHarmony/record_ohos` ref `main` → 锁定 `851a667` | record 7.1.1 | 原生-only；注：pub.dev 同名包只配 record PI 1.x，不可用 |
+| record_ohos | 1.0.0 | **vendored `packages/record_ohos`**（源 `github.com/ClosedHarmony/record_ohos` ref `main` @ `851a667`） | record 7.1.1 | 原生-only；本地把「attach 时无条件申请麦克风」改为按需申请（见该目录 `VENDOR.md`）；注：pub.dev 同名包只配 record PI 1.x，不可用 |
 | saver_gallery | ^5.1.0 | pub.dev | 替代 gal 2.3.3 | OHOS 用 SaveButton/授权弹窗，**无需媒体库权限**；lib 侧由 task-5 切换 |
 
 其他端影响：除 `saver_gallery`（android/ios/ohos 三平台，与 gal 并存不冲突）外，其余包只声明 ohos，

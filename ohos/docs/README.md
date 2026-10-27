@@ -37,6 +37,11 @@ robocopy C:\Users\iceblock\fluxdo\docs C:\Users\iceblock\fluxdo\repo\ohos\docs *
   或标注为「已移除」，避免交付说明与代码不一致。
 - 剪贴板「读富文本」依赖 system_basic 级 `READ_PASTEBOARD`，普通证书拿不到，
   相关实现与 Promise 一并移除；OHOS 富文本粘贴按设计降级纯文本。
+- **麦克风授权改为按需申请**：`record_ohos` 上游在引擎 attach 时无条件申请
+  `MICROPHONE`，模拟器实测 App 一冷启动就在登录页弹「允许访问麦克风」（与当前操作
+  无关的索权，审核会判不合理）。该插件已 vendored 到 `packages/record_ohos`，
+  改为用户点「录音」时才检查/申请；`hasPermission` 也不再硬编码 true。
+  见该目录 `VENDOR.md`。
 - `ohos.permission.PUBLISH_AGENT_REMINDER` 已从最终 HAP 移除（解包 module.json 实测：
   只剩 INTERNET / GET_NETWORK_INFO / CAMERA / MICROPHONE）。注意 hvigor 会把依赖 HAR
   的权限合并进产物，只删应用侧声明无效；因此 `flutter_local_notifications` 已 vendored

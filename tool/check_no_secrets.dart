@@ -28,6 +28,8 @@ const List<String> _textNeedles = <String>[
 /// 允许出现上述特征的文件（本守卫自身 + 明确的一次性测试密钥）。
 const Set<String> _textAllowList = <String>{
   'tool/check_no_secrets.dart',
+  // 守卫自身的单测：故意写入口令字段作为「应当被拦截」的样例。
+  'test/tool/repo_guards_test.dart',
   // 单元测试用的临时 RSA 私钥（测试内生成/写死的测试向量，非真实证书）。
   'test/services/crypto/crypto_toolbox_test.dart',
 };
