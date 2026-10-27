@@ -115,6 +115,14 @@ Future<void> launchExternalLink(BuildContext context, String url) async {
     return;
   }
 
+  if (PlatformUtils.isOhos) {
+    // HarmonyOS：统一走 ArkTS 桥（同时执行 http/https/mailto/tel 白名单）。
+    // 不能只依赖 canLaunchUrl —— 它对 javascript:/file: 返回 false 只是「系统没有
+    // 处理程序」，而带处理程序的自定义 scheme 会返回 true 并绕过白名单直接
+    // startAbility（模拟器实测：javascript: 静默无反应，但 custom scheme 会拉起应用）。
+    await _openExternallyOnOhos(url);
+    return;
+  }
   if (await canLaunchUrl(uri)) {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }

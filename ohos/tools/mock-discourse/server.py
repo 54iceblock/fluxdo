@@ -212,10 +212,17 @@ def topic_detail(tid: int) -> dict:
             "<p>如果能看到图片，说明解码与渲染链路正常。</p>"
             "<p>链接用例：</p>"
             "<ul>"
-            '<li><a href="https://example.com/">外部 https 链接</a>（应交给系统浏览器）</li>'
-            '<li><a href="mailto:test@example.com">mailto 链接</a>（应交给邮件应用）</li>'
-            '<li><a href="javascript:alert(1)">javascript 链接</a>（应被白名单拒绝）</li>'
+            '<li><a href="https://example.com/">外部 https 链接</a>'
+            "（实测：弹「即将离开」确认框 → 继续访问 → 系统浏览器打开 example.com）</li>"
+            '<li><a href="mailto:test@example.com">mailto 链接</a>'
+            "（实测：正文渲染层不生成可点 span，点它无响应）</li>"
+            '<li><a href="javascript:alert(1)">javascript 链接</a>'
+            "（实测：同上不响应；白名单拦截另有单测覆盖）</li>"
+            '<li><a href="flutterdev://demo/path">自定义 scheme 链接</a>'
+            "（实测：同上不响应）</li>"
             "</ul>"
+            "<p>结论：正文里只有 http(s) 链接可点；其它 scheme 是纯文本，"
+            "不会触发外部打开（安全默认），ArkTS 桥的白名单是第二道防线。</p>"
         )
     t = dict(t)
     t["post_stream"] = {

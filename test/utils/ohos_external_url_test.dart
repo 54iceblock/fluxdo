@@ -68,4 +68,54 @@ void main() {
       expect(c, contains('out_width = (int)(((int64_t)w * max_dim) / h);'));
     });
   });
+
+  // 下面几组断言钉住的是「只在模拟器上才暴露」的两个缺陷的修复。
+  // 没有它们，下次重构很容易把顺序改回去，问题又会静默复发。
+  group('OHOS 平台分支顺序（真机回归）', () {
+    /// 去掉注释，避免说明性文字里的关键字造成误判。
+    String stripComments(String src) => src
+        .replaceAll(RegExp(r'/\*[\s\S]*?\*/', multiLine: true), '')
+        .split('\n')
+        .where((l) => !l.trimLeft().startsWith('//'))
+        .join('\n');
+
+    test('外链主路径必须走 ArkTS 桥白名单，不能只靠 canLaunchUrl', () {
+      final src = stripComments(
+        File('lib/utils/link_launcher.dart').readAsStringSync(),
+      );
+      final body = RegExp(
+        r'Future<void> launchExternalLink\(([\s\S]*?)\n\}',
+      ).firstMatch(src)?.group(0);
+      expect(body, isNotNull, reason: '未找到 launchExternalLink');
+      final ohosIndex = body!.indexOf('_openExternallyOnOhos');
+      final canLaunchIndex = body.indexOf('canLaunchUrl');
+      expect(ohosIndex, greaterThan(-1), reason: '外链主路径没走 OHOS 桥');
+      // canLaunchUrl 对带处理程序的自定义 scheme 返回 true，会绕过白名单
+      expect(
+        canLaunchIndex == -1 || ohosIndex < canLaunchIndex,
+        isTrue,
+        reason: 'OHOS 分支必须在 canLaunchUrl 之前 return',
+      );
+    });
+
+    test('AVIF 必须自编 libavif 优先，引擎 codec 只能兜底', () {
+      final src = stripComments(
+        File('lib/services/avif_image_provider.dart').readAsStringSync(),
+      );
+      final body = RegExp(
+        r'Future<ui\.Codec\?> _tryPlatformAvifCodec\(([\s\S]*?)\n\}',
+      ).firstMatch(src)?.group(0);
+      expect(body, isNotNull, reason: '未找到 _tryPlatformAvifCodec');
+      final ohosIndex = body!.indexOf('_tryOhosAvifCodec');
+      final engineIndex = body.indexOf('_tryEngineAvifCodec');
+      expect(ohosIndex, greaterThan(-1));
+      expect(engineIndex, greaterThan(-1));
+      // 引擎对 AVIF 会「成功返回 codec 但取帧为空」，先试引擎就永远到不了自编库
+      expect(
+        ohosIndex < engineIndex,
+        isTrue,
+        reason: 'OHOS 必须先试自编 libavif，否则 AVIF 图片会显示破损占位符',
+      );
+    });
+  });
 }
