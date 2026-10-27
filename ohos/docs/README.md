@@ -42,6 +42,11 @@ robocopy C:\Users\iceblock\fluxdo\docs C:\Users\iceblock\fluxdo\repo\ohos\docs *
   无关的索权，审核会判不合理）。该插件已 vendored 到 `packages/record_ohos`，
   改为用户点「录音」时才检查/申请；`hasPermission` 也不再硬编码 true。
   见该目录 `VENDOR.md`。
+- **通知授权弹窗不是应用索权**：全新安装后首次启动仍会弹「允许 FluxDO 向你发送
+  通知」，实测确认这是 **HarmonyOS 系统**对首次安装应用的一次性询问 —— 点击
+  「不允许」后重启不再出现；应用侧 `ensurePermission()` 只在 `show()` 路径懒调用，
+  启动路径无任何 `requestEnableNotification`（hilog 已验证）。为减少人工测试干扰，
+  debug 探针 `_probeOhosNotification` 也不再主动 publish。
 - `ohos.permission.PUBLISH_AGENT_REMINDER` 已从最终 HAP 移除（解包 module.json 实测：
   只剩 INTERNET / GET_NETWORK_INFO / CAMERA / MICROPHONE）。注意 hvigor 会把依赖 HAR
   的权限合并进产物，只删应用侧声明无效；因此 `flutter_local_notifications` 已 vendored

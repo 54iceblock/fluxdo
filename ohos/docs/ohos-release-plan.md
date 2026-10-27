@@ -180,7 +180,7 @@ API 26 覆盖极窄（仅 HarmonyOS 7 设备）｜`GET_NETWORK_INFO` 由 connect
 | G2-1 | 首启隐私同意门槛：新增 `PrivacyConsentGate`（在 Onboarding 之前）；展示《隐私政策》《用户协议》摘要 + 同意/不同意；不同意退出；同意状态带**版本号**持久化，政策更新可重征 | 首启 3 种路径录屏（同意/不同意/撤回）；同意前无网络请求、无权限弹窗 | — | 1–1.5 人日 |
 | G2-2 | 隐私政策 + 用户协议：中文，含数据项（Cookie/令牌/收藏/浏览历史/本地日志）、6 项权限表、第三方 SDK 清单、数据留存与删除、注销路径、联系方式、备案号展示；托管 HTTPS（**国内可稳定访问**，避免 github.io） | 政策文档 v1.0 + URL + 应用内两个入口（首启 + 设置-关于） | 域名方案（G0-2） | 2–3 人日 |
 | G2-3 | 同意前零收集/零联网改造：`_runStartupUiTasks` 整体后置；`_autoCheckUpdate`、日志上报、Cookie 同步等全部依赖同意状态；全量审计 `initState`/启动插件 | 抓包/日志证据：冷启动至同意前 0 外部请求 | G2-1 | 1–2 人日 |
-| G2-4 | 权限时序与收敛：申请前弹窗说明用途（相机=扫码/拍照、麦克风=语音消息）；拒绝后降级不阻断；**保留** `GET_NETWORK_INFO`（connectivity_plus 监听网络变化要用，删了只会被插件 HAR 重新带回）；`PUBLISH_AGENT_REMINDER` 已通过 vendored flutter_local_notifications 移除（见 `packages/flutter_local_notifications/VENDOR.md`）；`reason` 文案改具体 | 权限矩阵测试（同意/拒绝/永拒）；`module.json5` diff | G2-1 | 1 人日 |
+| G2-4 | 权限时序与收敛：申请前弹窗说明用途（相机=扫码/拍照、麦克风=语音消息）；拒绝后降级不阻断；**保留** `GET_NETWORK_INFO`（connectivity_plus 监听网络变化要用，删了只会被插件 HAR 重新带回）；`PUBLISH_AGENT_REMINDER` 已通过 vendored flutter_local_notifications 移除（见 `packages/flutter_local_notifications/VENDOR.md`）；麦克风已改为点「录音」才申请（vendored `packages/record_ohos`）；`reason` 文案改具体 | 权限矩阵测试（同意/拒绝/永拒）；`module.json5` diff；首启实测：干净安装后 `atm dump -t -b com.fluxdo.app` 里 MICROPHONE 应保持 `grantStatus=-1`（未授予） | G2-1 | 1 人日 |
 | G2-5 | 账号注销与数据删除：设置-账号新增「注销账号」——说明由 linux.do 侧执行并提供跳转 + 本地数据清除确认；「数据管理」补「删除我的全部本地数据」 | 注销路径走查录屏；隐私政策对应条目 | — | 0.5–1 人日 |
 | G2-6 | 站内更新改造：OHOS 彻底关闭 GitHub 更新链路与「GitHub 反代」入口（`PlatformUtils.isOhos` 分支 return）；「检查更新」改为应用市场更新（优先接 AGC/系统更新能力，其次仅提示「请前往应用市场更新」〔待核实允许方式〕） | 关于页 diff；OHOS 无站外下载入口的证据 | — | 0.5–1 人日 |
 | G2-7 | UGC 合规：用户协议写明举报/屏蔽/处置链路与停服规则；按审核要求准备内容分级/青少年模式说明（如需再补功能） | 协议章节 + 分级问卷底稿 | G0-2 类目 | 0.5 人日 |
