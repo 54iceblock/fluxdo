@@ -37,8 +37,11 @@ robocopy C:\Users\iceblock\fluxdo\docs C:\Users\iceblock\fluxdo\repo\ohos\docs *
   或标注为「已移除」，避免交付说明与代码不一致。
 - 剪贴板「读富文本」依赖 system_basic 级 `READ_PASTEBOARD`，普通证书拿不到，
   相关实现与 Promise 一并移除；OHOS 富文本粘贴按设计降级纯文本。
-- `ohos.permission.PUBLISH_AGENT_REMINDER` 已从 `module.json5` 移除（只用即时
-  notification，不用 reminderAgent 定时提醒）。
+- `ohos.permission.PUBLISH_AGENT_REMINDER` 已从应用侧 `module.json5` 删除（只用即时
+  notification，不用 reminderAgent 定时提醒）。⚠️ 但 2026-10 重建 HAP 解包验证发现
+  最终包里**仍有**该权限：它来自 `flutter_local_notifications` 的 HAR 自带 module.json5，
+  由 hvigor 合并进产物，应用侧删声明无效；要彻底去掉需 vendored 该插件删其条目（未做，
+  normal 级权限、安装即授予，风险低）。上架说明按「依赖库自带、本版不使用定时提醒」写。
 - AVIF 解码已在 2026-10 重修：C 侧实现 `max_dim` 降采样、解码上限收到 8192，
   Dart 侧改为常驻后台 isolate。**改动了 `tools/ohos-avif-decode.c` 后必须重新
   编译 `libohos_avif.so`**（`wsl bash tools/build-avif-ohos.sh`），否则 .so 仍是
@@ -48,3 +51,22 @@ robocopy C:\Users\iceblock\fluxdo\docs C:\Users\iceblock\fluxdo\repo\ohos\docs *
 - git 依赖全部锁定到 commit SHA：`dart run tool/check_ohos_pubspec.dart`
   （`just check-pubspec`），跨平台回归用 `--portable` 生成去掉 OHOS override 的
   pubspec。
+
+## 遗留风险：git 历史里的签名材料
+
+`f23ecc2` 及之前的提交里仍带着 DevEco 自动写入的 debug 签名配置（本机证书路径 +
+加密后的 `keyPassword`/`storePassword`）。HEAD 已清理并加了守卫脚本，但**历史仍在**：
+
+- 这些是 DevEco 为本机自动生成的**调试**证书材料，不是正式证书/私钥本体
+  （`.p12` 文件本身从未入库，历史里只有路径与加密口令字符串）。
+- 若仓库要公开（或已经推送），建议按下面步骤彻底清理历史后再推送：
+  ```bash
+  pip install git-filter-repo
+  git filter-repo --path ohos/build-profile.json5 --invert-paths   # 不保留该文件任何历史版本
+  # 或只替换内容：
+  git filter-repo --replace-text <(echo 'regex:keyPassword.*==>keyPassword: ""')
+  git push --force-with-lease fork main
+  ```
+- 无论是否清理，都建议换一套调试证书（DevEco 重新自动签名即可生成新的），
+  让历史里那串口令彻底失效。
+
