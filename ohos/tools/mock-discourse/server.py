@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """FluxDO 真机 mock 测试用的最小 Discourse 服务。
 
 用途：把应用 baseUrl 指向本机（真机通过 `hdc rport` 端口转发），
@@ -210,6 +210,12 @@ def topic_detail(tid: int) -> dict:
             "<p>【Mock】AVIF 解码验证：下面这张图是 AVIF 格式。</p>"
             '<p><img src="/mock/avif.avif" alt="avif" width="600"></p>'
             "<p>如果能看到图片，说明解码与渲染链路正常。</p>"
+            "<p>链接用例：</p>"
+            "<ul>"
+            '<li><a href="https://example.com/">外部 https 链接</a>（应交给系统浏览器）</li>'
+            '<li><a href="mailto:test@example.com">mailto 链接</a>（应交给邮件应用）</li>'
+            '<li><a href="javascript:alert(1)">javascript 链接</a>（应被白名单拒绝）</li>'
+            "</ul>"
         )
     t = dict(t)
     t["post_stream"] = {
