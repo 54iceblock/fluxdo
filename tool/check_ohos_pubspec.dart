@@ -37,6 +37,24 @@ const Set<String> _ohosOnlyOverrides = <String>{
   'ota_update',
 };
 
+/// 便携版要**恢复成上游形态**的 override（不是简单删掉）。
+///
+/// `device_info_plus` 上游本来就有一条 hosted pin：`super_clipboard ^0.9.1` 要求
+/// `device_info_plus <12.0.0`，而上游业务代码用 12.3.0，只能靠 override 压过去。
+/// OHOS 版把这条换成了 git fork；便携版若直接删掉，非 OHOS 平台会
+/// `version solving failed`（实测）。
+const Map<String, String> _portableRestore = <String, String>{
+  'device_info_plus': '  device_info_plus: 12.3.0',
+};
+
+/// 上游有、但 OHOS 移植为了构建通过而删掉的 override —— 便携版必须补回，
+/// 否则桌面端会丢掉 vendored 的 inappwebview 修复（Windows 析构 UAF 闪退）。
+const String _portableExtraOverrides = '''  flutter_inappwebview_linux:
+    path: packages/flutter_inappwebview_linux
+  # Windows 插件析构存在悬垂 this 回调 UAF(CF 验证 WebView 销毁时闪退)
+  flutter_inappwebview_windows:
+    path: packages/flutter_inappwebview_windows''';
+
 final RegExp _sha40 = RegExp(r'^[0-9a-f]{40}$');
 
 Future<void> main(List<String> args) async {
@@ -203,13 +221,20 @@ List<String> _checkLock(_PubspecScan scan) {
   return problems;
 }
 
-/// 生成「去掉 OHOS 专属 override」的 pubspec，供非 OHOS 平台验证上游版本可用。
+/// 生成「还原成上游形态」的 pubspec，供非 OHOS 平台验证上游版本可用。
+///
+/// 注意不是简单「删掉 OHOS override」：
+///  - `_portableRestore` 里的键要恢复成上游的 hosted pin（否则 version solving 失败）；
+///  - `_portableExtraOverrides` 是上游有、OHOS 版删掉的 override，必须补回。
 Future<void> _writePortable(String outPath) async {
   final File file = File('${_root.path}/pubspec.yaml');
   final List<String> lines = const LineSplitter().convert(file.readAsStringSync());
   final List<String> out = <String>[];
   bool inOverrides = false;
   bool dropping = false;
+  // 段内注释先缓存：紧跟在被删/被替换块上方的说明，随该块一起丢掉
+  final List<String> pendingComments = <String>[];
+  bool injected = false;
 
   for (final String line in lines) {
     final String trimmed = line.trim();
@@ -218,28 +243,56 @@ Future<void> _writePortable(String outPath) async {
     if (indent == 0 && !trimmed.startsWith('#')) {
       inOverrides = trimmed == 'dependency_overrides:';
       dropping = false;
+      pendingComments.clear();
       out.add(line);
+      // 直接在本段开头注入：YAML 里 override 顺序无关，避免"记住插入位置"那类
+      // 索引漂移 bug（上一版就把 git 子块残留到了错误位置）。
+      if (inOverrides && !injected) {
+        out.addAll(_portableRestore.values);
+        out.add(_portableExtraOverrides);
+        injected = true;
+      }
       continue;
     }
     if (!inOverrides) {
       out.add(line);
       continue;
     }
-    // 任何 2 空格缩进的键都会结束上一个块：既有 `name:`（多行块），也有
-    // `name: 1.2.3` 这种单行 override —— 只认前者会把紧跟在被删块后面的
-    // 单行 override（如 flutter_rust_bridge）一起吞掉（单测发现的 bug）。
+
+    if (indent == 2 && trimmed.startsWith('#')) {
+      pendingComments.add(line);
+      continue;
+    }
+
     final RegExpMatch? key =
         indent == 2 ? RegExp(r'^([A-Za-z0-9_]+):').firstMatch(trimmed) : null;
     if (key != null) {
-      dropping = _ohosOnlyOverrides.contains(key.group(1));
-      if (dropping) continue;
+      final String name = key.group(1)!;
+      // 被删掉的 OHOS fork，以及已被还原成上游形态的键，整块（含 git 子块）都丢弃
+      dropping =
+          _ohosOnlyOverrides.contains(name) || _portableRestore.containsKey(name);
+      if (dropping) {
+        pendingComments.clear();
+        continue;
+      }
+      out.addAll(pendingComments);
+      pendingComments.clear();
       out.add(line);
       continue;
     }
-    // 被删块内部的更深缩进行一并删掉；注释/空行保留（只会多几行说明，不影响解析）
-    if (dropping && indent > 2) continue;
-    dropping = dropping && indent > 2;
+
+    // 块内更深缩进的行
+    if (dropping) continue;
+    out.addAll(pendingComments);
+    pendingComments.clear();
     out.add(line);
+  }
+
+  if (!injected) {
+    stderr.writeln(
+      '[check-pubspec] 警告：pubspec.yaml 里没有 dependency_overrides 段，'
+      '便携版缺少 device_info_plus 的 hosted pin（super_clipboard 会解析失败）',
+    );
   }
 
   // 相对路径按仓库根解析（不受当前工作目录影响）
@@ -248,9 +301,9 @@ Future<void> _writePortable(String outPath) async {
       : File('${_root.path}/$outPath');
   target.parent.createSync(recursive: true);
   target.writeAsStringSync(
-    '# 由 `dart run tool/check_ohos_pubspec.dart --portable` 生成：\n'
-    '# 移除了依赖 OHOS fork 的 override，用于 Android/iOS/桌面端回归验证。\n'
-    '# 不要手工编辑、也不要提交本文件。\n'
+    '# 由 `dart tool/check_ohos_pubspec.dart --portable` 生成：\n'
+    '# 已移除 OHOS 专属 override，并把上游有、OHOS 版替换/删除的 override 还原，\n'
+    '# 用于 Android/iOS/桌面端回归验证。不要手工编辑、也不要提交本文件。\n'
     '${out.join('\n')}\n',
   );
   stdout.writeln('[check-pubspec] 已生成便携版 pubspec：$outPath');

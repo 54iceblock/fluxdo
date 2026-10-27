@@ -149,12 +149,19 @@ packages:
       expect('${r.stderr}', contains('pubspec.lock'));
     });
 
-    test('--portable 去掉 OHOS 专属 override，保留其它', () async {
+    test('--portable 把 OHOS fork override 还原成上游形态，保留其它', () async {
       write('pubspec.yaml', pubspec(sha));
       final r = await run('check_ohos_pubspec.dart', ['--portable', 'out.yaml']);
       expect(r.exitCode, 0, reason: '${r.stdout}${r.stderr}');
       final out = File('${tmp.path}/out.yaml').readAsStringSync();
-      expect(out, isNot(contains('device_info_plus:')));
+      // device_info_plus 不能删：上游靠它压住 super_clipboard 的 <12.0.0 约束，
+      // 删了非 OHOS 平台会 version solving failed（实测）。应还原成 hosted pin。
+      expect(out, contains('  device_info_plus: 12.3.0'));
+      expect(out, isNot(contains('packages/device_info_plus')));
+      expect(out, isNot(contains('example.com/plus.git')));
+      // 上游有、OHOS 版删掉的桌面 override 要补回
+      expect(out, contains('flutter_inappwebview_windows'));
+      expect(out, contains('flutter_inappwebview_linux'));
       expect(out, contains('flutter_rust_bridge: 2.12.0'));
       expect(out, contains('record_ohos:'));
     });
