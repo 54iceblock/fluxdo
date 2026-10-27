@@ -78,6 +78,11 @@ jobs:
       - name: Check for committed signing material
         run: dart run tool/check_no_secrets.dart
 
+      # 守卫：OHOS 的 git 依赖必须锁定 commit SHA（写分支名会让依赖不可复现，
+      # 且 override 对非 OHOS 平台同样生效）。见 tool/check_ohos_pubspec.dart。
+      - name: Check OHOS dependency pinning
+        run: dart run tool/check_ohos_pubspec.dart
+
       - name: Setup Java
         if: startsWith(matrix.platform, 'android')
         uses: actions/setup-java@v4

@@ -1,4 +1,4 @@
-﻿name: fluxdo
+name: fluxdo
 description: "A new Flutter project."
 publish_to: 'none'
 version: 0.2.29+2026102016
@@ -187,14 +187,19 @@ dependencies:
   package_info_plus_harmonyos: 0.0.1
   # 原生-only 实现：Dart API 由官方 flutter_secure_storage / record 提供，
   # 这两个包只注册 OHOS 原生插件（通道名与官方一致）。
+  # ⚠️ git 依赖一律锁定到 commit SHA（不许写分支名）：分支可能被上游
+  # force-push 或持续提交，那样依赖就不可复现。升级时手工改 SHA 并在注释里
+  # 记下原分支 + 日期。
   flutter_secure_storage_ohos:
     git:
       url: https://github.com/ClosedHarmony/flutter_secure_storage_ohos.git
-      ref: main
+      # 原 ref: main（2026-10-26 锁定）
+      ref: 545fb022eed8ce7891028d4851a617b9a8328177
   record_ohos:
     git:
       url: https://github.com/ClosedHarmony/record_ohos.git
-      ref: main
+      # 原 ref: main（2026-10-26 锁定）
+      ref: 851a667b5665611b068533e52ea16d06461a956f
   # gal 无 OHOS 实现；saver_gallery 5.x 起支持 OHOS（内部走 SaveButton，无需媒体库权限）。
   saver_gallery: ^5.1.0
 
@@ -248,51 +253,64 @@ dependencies:
   full_svg_flutter: ^1.3.0
 dependency_overrides:
   # ==================== HarmonyOS / OHOS：CPF-Flutter 官方适配 fork ====================
-  # 全部为 gitcode.com/CPF-Flutter 组织下的 OHOS 分支/TAG（已用 git ls-remote + raw
-  # pubspec 验证存在；TAG 命名规则 <上游版本>-ohos-<x.y.z>）。改动原因、版本差与回滚
-  # 方式见 docs/ohos-pubspec-changes.md。回滚：删除下面 config 段，恢复
-  # `device_info_plus: 12.3.0`，然后 flutter pub get。
-  # 注意：单 pubspec 临时策略会让这 11 个包在 Android/iOS/桌面端也使用 fork 版本
-  #（inappwebview 6.2.0-beta.3→6.1.5、mobile_scanner 7.4.2→7.1.4 等），后续拆双
-  # pubspec 时整体搬走即可。
+  # 全部为 gitcode.com/CPF-Flutter 组织下的 OHOS 分支/TAG 的**锁定 commit**。
+  # 改动原因、版本差与回滚方式见 docs/ohos-pubspec-changes.md。
+  #
+  # ⚠️ 两条硬规则：
+  #  1) 这里一律写完整 40 位 commit SHA，禁止写分支名/TAG：分支会被上游持续提交、
+  #     也可能被 force-push，写分支等于依赖不可复现（此前 main / br_*_dev 就是这种情况）。
+  #     升级时改 SHA，并在注释里记下原分支与日期。校验：`just check-pubspec`。
+  #  2) 单 pubspec 策略下，这些覆盖对 Android/iOS/桌面端**同样生效**（inappwebview
+  #     6.2.0-beta.3→6.1.5、mobile_scanner 7.4.2→7.1.4、device_info_plus 12.3.0 fork 等）。
+  #     因此非 OHOS 平台发布前必须验证：`just check-pubspec --portable` 会生成一份
+  #     去掉 OHOS 专属覆盖的 pubspec，用它跑 `flutter pub get` + 目标平台构建，
+  #     确认上游版本仍可编译（CI 的 android/ios/macos/windows job 应逐步接入）。
   device_info_plus:
     git:
       url: https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git
-      ref: br_device_info_plus-v12.3.0_ohos
+      # 原 ref: br_device_info_plus-v12.3.0_ohos（2026-10-26 锁定）
+      ref: 8b5ba6a9ef3a28558177e9193319a0700f9cc640
       path: packages/device_info_plus/device_info_plus
   connectivity_plus:
     git:
       url: https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git
-      ref: br_connectivity_plus-v7.0.0_ohos
+      # 原 ref: br_connectivity_plus-v7.0.0_ohos（2026-10-26 锁定）
+      ref: 9514235dda402b432b860a31c69d4dc5153891f5
       path: packages/connectivity_plus/connectivity_plus
   open_filex:
     git:
       url: https://gitcode.com/CPF-Flutter/fluttertpc_open_filex.git
-      ref: 4.7.0-ohos-1.0.0
+      # 原 ref: TAG 4.7.0-ohos-1.0.0（2026-10-26 锁定）
+      ref: 850a9abd0220316dc2bb45924315cb2304ff4ab6
   mobile_scanner:
     git:
       url: https://gitcode.com/CPF-Flutter/fluttertpc_mobile_scanner.git
-      ref: br_v7.1.4_ohos
+      # 原 ref: br_v7.1.4_ohos（2026-10-26 锁定）
+      ref: f5a4ff52f003e1645db1d4de743a2db0313665a8
   volume_controller:
     git:
       url: https://gitcode.com/CPF-Flutter/fluttertpc_volume_controller.git
-      ref: br_v3.6.0_ohos_dev
+      # 原 ref: br_v3.6.0_ohos_dev（2026-10-26 锁定）
+      ref: 3cf0457a6e9dd21f59a62bd18407e94e68a1e081
   app_links:
     git:
       url: https://gitcode.com/CPF-Flutter/fluttertpc_app_links.git
-      ref: 7.0.0-ohos-1.0.1
+      # 原 ref: TAG 7.0.0-ohos-1.0.1（2026-10-26 锁定）
+      ref: 109fac28a22c3f5ab403049adec46412dacf1acd
       path: app_links
   flutter_local_notifications:
     git:
       url: https://gitcode.com/CPF-Flutter/fluttertpc_flutter_local_notifications.git
-      ref: br_3.41_dev
+      # 原 ref: br_3.41_dev（2026-10-26 锁定）
+      ref: 714178b60a5d39268c6c74ec1082be559d1d121a
       path: flutter_local_notifications
   # sqflite 是 flutter_cache_manager 的传递依赖；fork 内 sqflite_ohos 是 path 依赖，
   # 会随 git checkout 一起解析（不额外覆盖 sqflite_ohos）。
   sqflite:
     git:
       url: https://gitcode.com/CPF-Flutter/flutter_sqflite.git
-      ref: br_3.41_dev
+      # 原 ref: br_3.41_dev（2026-10-26 锁定）
+      ref: 9627805b994b89d8abc273a450bfb176142c5860
       path: sqflite
   # flutter_inappwebview 是联邦插件：fork 的 app-facing 包通过 path 依赖引用
   # platform_interface(1.3.0+1)/android/ios/macos/web/windows/ohos，因此三个包一起
@@ -300,18 +318,21 @@ dependency_overrides:
   flutter_inappwebview:
     git:
       url: https://gitcode.com/CPF-Flutter/flutter_inappwebview.git
-      ref: br_v6.1.5_ohos
+      # 原 ref: br_v6.1.5_ohos（2026-10-26 锁定）
+      ref: 389cf40dbb647f1df7272de5ea6b3401efe27a75
       path: flutter_inappwebview
   flutter_inappwebview_platform_interface:
     git:
       url: https://gitcode.com/CPF-Flutter/flutter_inappwebview.git
-      ref: br_v6.1.5_ohos
+      # 同上：与原 ref br_v6.1.5_ohos 同一 commit
+      ref: 389cf40dbb647f1df7272de5ea6b3401efe27a75
       path: flutter_inappwebview_platform_interface
   # ota_update：OHOS 分支新增 executeOhos()，原有 Android API 不变。
   ota_update:
     git:
       url: https://gitcode.com/CPF-Flutter/fluttertpc_ota_update.git
-      ref: br_3.35
+      # 原 ref: br_3.35（2026-10-26 锁定）
+      ref: feff13ba2bb3c1ec31c15ed21e2e75fe2e8a9c28
 
   # super_clipboard 0.9.1 要求 device_info_plus <12.0.0，
   # 但实际 12.x 接口兼容，强制使用项目版本（现由上面的 OHOS fork 12.3.0 提供）。

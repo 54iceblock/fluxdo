@@ -37,7 +37,7 @@ packages:
     dependency: "direct main"
     description:
       path: app_links
-      ref: "7.0.0-ohos-1.0.1"
+      ref: "109fac28a22c3f5ab403049adec46412dacf1acd"
       resolved-ref: "109fac28a22c3f5ab403049adec46412dacf1acd"
       url: "https://gitcode.com/CPF-Flutter/fluttertpc_app_links.git"
     source: git
@@ -238,7 +238,7 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/connectivity_plus/connectivity_plus"
-      ref: "br_connectivity_plus-v7.0.0_ohos"
+      ref: "9514235dda402b432b860a31c69d4dc5153891f5"
       resolved-ref: "9514235dda402b432b860a31c69d4dc5153891f5"
       url: "https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git"
     source: git
@@ -351,7 +351,7 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/device_info_plus/device_info_plus"
-      ref: "br_device_info_plus-v12.3.0_ohos"
+      ref: "8b5ba6a9ef3a28558177e9193319a0700f9cc640"
       resolved-ref: "8b5ba6a9ef3a28558177e9193319a0700f9cc640"
       url: "https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git"
     source: git
@@ -692,7 +692,7 @@ packages:
     dependency: "direct main"
     description:
       path: flutter_inappwebview
-      ref: "br_v6.1.5_ohos"
+      ref: "389cf40dbb647f1df7272de5ea6b3401efe27a75"
       resolved-ref: "389cf40dbb647f1df7272de5ea6b3401efe27a75"
       url: "https://gitcode.com/CPF-Flutter/flutter_inappwebview.git"
     source: git
@@ -746,7 +746,7 @@ packages:
     dependency: "direct overridden"
     description:
       path: flutter_inappwebview_platform_interface
-      ref: "br_v6.1.5_ohos"
+      ref: "389cf40dbb647f1df7272de5ea6b3401efe27a75"
       resolved-ref: "389cf40dbb647f1df7272de5ea6b3401efe27a75"
       url: "https://gitcode.com/CPF-Flutter/flutter_inappwebview.git"
     source: git
@@ -789,7 +789,7 @@ packages:
     dependency: "direct main"
     description:
       path: flutter_local_notifications
-      ref: "br_3.41_dev"
+      ref: "714178b60a5d39268c6c74ec1082be559d1d121a"
       resolved-ref: "714178b60a5d39268c6c74ec1082be559d1d121a"
       url: "https://gitcode.com/CPF-Flutter/fluttertpc_flutter_local_notifications.git"
     source: git
@@ -898,7 +898,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: main
+      ref: "545fb022eed8ce7891028d4851a617b9a8328177"
       resolved-ref: "545fb022eed8ce7891028d4851a617b9a8328177"
       url: "https://github.com/ClosedHarmony/flutter_secure_storage_ohos.git"
     source: git
@@ -1508,7 +1508,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "br_v7.1.4_ohos"
+      ref: f5a4ff52f003e1645db1d4de743a2db0313665a8
       resolved-ref: f5a4ff52f003e1645db1d4de743a2db0313665a8
       url: "https://gitcode.com/CPF-Flutter/fluttertpc_mobile_scanner.git"
     source: git
@@ -1620,7 +1620,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "4.7.0-ohos-1.0.0"
+      ref: "850a9abd0220316dc2bb45924315cb2304ff4ab6"
       resolved-ref: "850a9abd0220316dc2bb45924315cb2304ff4ab6"
       url: "https://gitcode.com/CPF-Flutter/fluttertpc_open_filex.git"
     source: git
@@ -1637,7 +1637,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "br_3.35"
+      ref: feff13ba2bb3c1ec31c15ed21e2e75fe2e8a9c28
       resolved-ref: feff13ba2bb3c1ec31c15ed21e2e75fe2e8a9c28
       url: "https://gitcode.com/CPF-Flutter/fluttertpc_ota_update.git"
     source: git
@@ -1958,7 +1958,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: main
+      ref: "851a667b5665611b068533e52ea16d06461a956f"
       resolved-ref: "851a667b5665611b068533e52ea16d06461a956f"
       url: "https://github.com/ClosedHarmony/record_ohos.git"
     source: git
@@ -2321,7 +2321,7 @@ packages:
     dependency: "direct overridden"
     description:
       path: sqflite
-      ref: "br_3.41_dev"
+      ref: "9627805b994b89d8abc273a450bfb176142c5860"
       resolved-ref: "9627805b994b89d8abc273a450bfb176142c5860"
       url: "https://gitcode.com/CPF-Flutter/flutter_sqflite.git"
     source: git
@@ -2715,7 +2715,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "br_v3.6.0_ohos_dev"
+      ref: "3cf0457a6e9dd21f59a62bd18407e94e68a1e081"
       resolved-ref: "3cf0457a6e9dd21f59a62bd18407e94e68a1e081"
       url: "https://gitcode.com/CPF-Flutter/fluttertpc_volume_controller.git"
     source: git
