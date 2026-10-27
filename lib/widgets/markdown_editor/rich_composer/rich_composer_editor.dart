@@ -2960,15 +2960,9 @@ class RichComposerEditorState extends State<RichComposerEditor> {
   }
 
   Future<bool> _importRichPaste(EditorSelection? selection) async {
-    // HarmonyOS：super_clipboard 无原生实现（取 instance 会抛符号查找异常），
-    // 改走自研 ArkTS 桥读取剪贴板 HTML，再按同一套规则转 Markdown 插入。
-    if (ClipboardUtils.supportsOhosRichClipboard) {
-      final html = await ClipboardUtils.readHtml();
-      if (html == null || html.trim().isEmpty) return false;
-      final md = clipboardHtmlToMarkdown(html);
-      if (md == null) return false;
-      return _insertSemanticMarkdown(md, selection);
-    }
+    // HarmonyOS 上 super_clipboard 无原生实现（取 instance 会抛符号查找异常），
+    // 且读剪贴板 HTML 需要 system_basic 级权限 READ_PASTEBOARD（普通证书拿不到），
+    // 所以 OHOS 的富文本粘贴直接降级为纯文本 —— 不在这里做任何 OHOS 分支。
     if (!ClipboardUtils.supportsRichClipboard) return false;
     final clipboard = SystemClipboard.instance;
     if (clipboard == null) return false; // 平台无系统剪贴板访问

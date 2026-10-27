@@ -1,11 +1,17 @@
 /**
  * FluxDO 自研 OHOS ArkTS 桥（task-8）。
  *
- * 职责：给 Flutter 侧补上没有 OHOS 原生实现的系统能力。当前只包含「时区」
- * （P0），后续新增桥（如文件另存为）都在本文件里加。
+ * 职责：给 Flutter 侧补上没有 OHOS 原生实现的系统能力。当前包含：
+ *  - 时区：`getLocalTimezone` / `getAvailableTimezones` / `getSystemLocale`
+ *  - AVIF：`probeAvif` / `decodeAvif`（系统 ImageKit；多数 ROM 只能解析容器头，
+ *    Dart 侧真正用的是自编 libavif，见 lib/services/avif_ohos_codec.dart）
+ *  - 剪贴板：`writeImageToPasteboard`（**只写**；读 HTML 需 system_basic 级
+ *    READ_PASTEBOARD，普通证书拿不到，对应方法已移除）
+ *  - 外部浏览器：`openExternalUrl`（url_launcher 的 externalApplication 在
+ *    HarmonyOS 上没有实现，只能 startAbility）
  *
  * 通道设计：
- *  - `com.fluxdo/ohos`：自研业务通道。Dart 侧（lib/utils/time_utils.dart）显式调用，
+ *  - `com.fluxdo/ohos`：自研业务通道。Dart 侧（lib/utils/*.dart）显式调用，
  *    不依赖第三方包的内部实现细节，意图最清晰。
  *  - `flutter_timezone`：flutter_timezone 5.1.x 的 **实际** 通道名
  *    （见 .pub-cache/hosted/.../flutter_timezone-5.1.1/lib/flutter_timezone.dart 第 12 行
@@ -172,23 +178,25 @@ export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHand
         });
         return;
       }
-      if (call.method === 'readClipboardHtml') {
-        // 富文本粘贴：读系统剪贴板里的 HTML 片段（无则返回 null）
-        this.readClipboardHtml().then((html) => {
-          result.success(html);
-        }).catch((e: BusinessError) => {
-          const detail: string = `code=${e.code} msg=${e.message}`;
-          console.error(`FluxdoBridge readClipboardHtml failed: ${detail}`);
-          result.error('CLIPBOARD_READ_FAILED', detail, null);
-        });
-        return;
-      }
       if (call.method === 'openExternalUrl') {
         // 用系统浏览器打开链接（url_launcher 的 externalApplication 在
         // HarmonyOS 上不可用，canLaunchUrl 恒 false → 这里走 startAbility）
         const target = call.argument('url') as string;
         if (target === undefined || target === null || target.length === 0) {
           result.error('OPEN_URL_BAD_ARGS', 'url is required', null);
+          return;
+        }
+        // 只放行 http/https/mailto/tel：帖子正文里的链接、用户输入都可能带
+        // 任意 scheme（file://、app 自定义 scheme、javascript: 等），直接交给
+        // startAbility 等于让远端内容触发本机任意应用/文件访问。
+        const lower: string = target.toLowerCase();
+        const allowed: boolean = lower.startsWith('http://') ||
+          lower.startsWith('https://') ||
+          lower.startsWith('mailto:') ||
+          lower.startsWith('tel:');
+        if (!allowed) {
+          hilog.warn(DOMAIN, TAG, 'openExternalUrl rejected scheme: %{public}s', target);
+          result.success(false);
           return;
         }
         this.openExternalUrl(target).then((opened) => {
@@ -376,11 +384,11 @@ export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHand
   }
 
   /**
-   * 多种 ImageKit 解码姿势依次尝试，兼容不同 ROM 对 AVIF 的支持差异：
-  /**
    * 把 PNG 字节写入系统剪贴板（图片富内容）。
    *
    * HarmonyOS 剪贴板图片需要用 PixelMap；先用 ImageKit 解码 PNG，再 createData。
+   * 注意：这里**只写不读** —— 读回 HTML/富文本需要 system_basic 级权限
+   * READ_PASTEBOARD，普通应用证书安装期即被拒（详见 module.json5 的权限说明）。
    */
   private async writeImageToPasteboard(pngBytes: Uint8Array): Promise<void> {
     const source = image.createImageSource(pngBytes.buffer as ArrayBuffer);
@@ -405,22 +413,6 @@ export default class FluxdoBridgePlugin implements FlutterPlugin, MethodCallHand
         // 忽略释放失败
       }
     }
-  }
-
-  /** 读取系统剪贴板中的 HTML 片段；不存在则返回 null。 */
-  private async readClipboardHtml(): Promise<string | null> {
-    const board = pasteboard.getSystemPasteboard();
-    const hasData = await board.hasData();
-    if (!hasData) {
-      return null;
-    }
-    const data = await board.getData();
-    // PasteData 含 MIMETYPE_TEXT_HTML 时可用 getPrimaryHtml 取到 HTML 片段
-    const html: string = data.getPrimaryHtml();
-    if (html === undefined || html === null || html.length === 0) {
-      return null;
-    }
-    return html;
   }
 
   /**

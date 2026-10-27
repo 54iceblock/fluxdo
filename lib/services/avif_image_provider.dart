@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
@@ -90,7 +90,8 @@ const MethodChannel _ohosAvifChannel = MethodChannel('com.fluxdo/ohos');
 
 Future<ui.Codec?> _tryOhosAvifCodec(Uint8List bytes, {int? maxDim}) async {
   // 首选：自编 libavif + dav1d（libohos_avif.so，随 HAP 打包）。
-  final native = OhosAvifCodec.instance.decode(bytes, maxDim: maxDim);
+  // decode() 在常驻后台 isolate 里跑 FFI，主线程不再被整幅 RGBA 解码阻塞。
+  final native = await OhosAvifCodec.instance.decode(bytes, maxDim: maxDim);
   if (native != null) {
     try {
       final buffer = await ui.ImmutableBuffer.fromUint8List(native.rgba);

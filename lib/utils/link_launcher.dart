@@ -247,6 +247,9 @@ Future<void> launchContentLink(
     final fullUrl = UrlHelper.resolveUrl(url);
     if (onDownloadAttachment != null) {
       onDownloadAttachment(fullUrl);
+    } else if (PlatformUtils.isOhos) {
+      // HarmonyOS：canLaunchUrl 恒为 false，走桥（否则附件点了没反应）
+      await _openExternallyOnOhos(fullUrl);
     } else {
       final uri = Uri.tryParse(fullUrl);
       if (uri != null && await canLaunchUrl(uri)) {
@@ -258,6 +261,11 @@ Future<void> launchContentLink(
 
   // 5. Email 链接
   if (url.startsWith('mailto:')) {
+    if (PlatformUtils.isOhos) {
+      // HarmonyOS：同上，canLaunchUrl 恒 false，走桥由系统匹配邮件应用
+      await _openExternallyOnOhos(url);
+      return;
+    }
     final uri = Uri.tryParse(url);
     if (uri != null && await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -285,26 +293,9 @@ Future<bool> launchInExternalBrowser(String url) async {
   if (uri == null) return false;
 
   // HarmonyOS：url_launcher 的 externalApplication 没有实现（canLaunchUrl
-  // 恒为 false，表现为「无法打开外部浏览器」）。改走自研 ArkTS 桥，
-  // 用 startAbility(viewData) 让系统匹配浏览器。
+  // 恒为 false，表现为「无法打开外部浏览器」）。改走自研 ArkTS 桥。
   if (PlatformUtils.isOhos) {
-    try {
-      const channel = MethodChannel('com.fluxdo/ohos');
-      final opened = await channel.invokeMethod<bool>(
-        'openExternalUrl',
-        {'url': url},
-      );
-      if (opened == true) return true;
-    } catch (e) {
-      debugPrint('[LinkLauncher][OHOS] openExternalUrl 失败: $e');
-    }
-    // 桥失败时仍尝试 url_launcher（部分版本可用）
-    try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-      return true;
-    } catch (_) {
-      return false;
-    }
+    return _openExternallyOnOhos(url);
   }
 
   if (Platform.isAndroid) {
@@ -328,6 +319,33 @@ Future<bool> launchInExternalBrowser(String url) async {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
       return true;
     }
+    return false;
+  }
+}
+
+/// HarmonyOS 专用：经自研 ArkTS 桥调 `startAbility(viewData)` 交给系统打开。
+///
+/// 背景：OHOS 上 url_launcher 的 `LaunchMode.externalApplication` 没有实现，
+/// `canLaunchUrl` 恒为 false —— 附件下载与外链在 OHOS 上会「点了没反应」。
+/// 桥侧只放行 http/https/mailto/tel，避免远端内容用任意 scheme 触发本机应用。
+Future<bool> _openExternallyOnOhos(String url) async {
+  const channel = MethodChannel('com.fluxdo/ohos');
+  try {
+    final opened = await channel.invokeMethod<bool>(
+      'openExternalUrl',
+      {'url': url},
+    );
+    if (opened == true) return true;
+  } catch (e) {
+    debugPrint('[LinkLauncher][OHOS] openExternalUrl 失败: $e');
+  }
+  // 桥失败时仍尝试 url_launcher（部分版本可用）
+  final uri = Uri.tryParse(url);
+  if (uri == null) return false;
+  try {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    return true;
+  } catch (_) {
     return false;
   }
 }

@@ -18,7 +18,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// 仓库根目录（本文件位于 <repo>/tool/）。
+/// 仓库根目录（本文件位于 `tool/` 下）。
 final Directory _root = File.fromUri(Platform.script).parent.parent;
 
 /// 仅为了 OHOS 才存在的 override：非 OHOS 平台应使用上游版本。
@@ -55,13 +55,13 @@ Future<void> main(List<String> args) async {
   problems.addAll(scan.problems);
   problems.addAll(_checkLock(scan));
 
-  print(
+  stdout.writeln(
     '[check-pubspec] 扫描到 ${scan.gitDependencies.length} 个 git 依赖、'
     '${scan.overrides.length} 个 override（其中 OHOS 专属 ${_ohosOnlyOverrides.length} 个）。',
   );
 
   if (problems.isEmpty) {
-    print('[check-pubspec] OK：所有 git 依赖都锁定到 commit SHA，且与 pubspec.lock 一致。');
+    stdout.writeln('[check-pubspec] OK：所有 git 依赖都锁定到 commit SHA，且与 pubspec.lock 一致。');
     return;
   }
   stderr.writeln('[check-pubspec] 发现 ${problems.length} 项问题：');
@@ -102,7 +102,7 @@ _PubspecScan _scanPubspec(File file) {
       scan.gitDependencies.add(_GitDep(name, ref, section));
       if (!_sha40.hasMatch(ref)) {
         scan.problems.add(
-          '${section} > $name 的 git ref 不是 40 位 commit SHA：`$ref`'
+          '$section > $name 的 git ref 不是 40 位 commit SHA：`$ref`'
           '（分支名会让依赖不可复现）',
         );
       }
@@ -229,7 +229,7 @@ Future<void> _writePortable(String outPath) async {
     out.add(line);
   }
 
-  final File target = File('$outPath');
+  final File target = File(outPath);
   target.parent.createSync(recursive: true);
   target.writeAsStringSync(
     '# 由 `dart run tool/check_ohos_pubspec.dart --portable` 生成：\n'
@@ -237,6 +237,6 @@ Future<void> _writePortable(String outPath) async {
     '# 不要手工编辑、也不要提交本文件。\n'
     '${out.join('\n')}\n',
   );
-  print('[check-pubspec] 已生成便携版 pubspec：$outPath');
-  print('  下一步：cp $outPath pubspec.yaml && flutter pub get && <目标平台构建>');
+  stdout.writeln('[check-pubspec] 已生成便携版 pubspec：$outPath');
+  stdout.writeln('  下一步：cp $outPath pubspec.yaml && flutter pub get && <目标平台构建>');
 }

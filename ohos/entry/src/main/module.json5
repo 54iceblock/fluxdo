@@ -55,22 +55,28 @@
         ]
       }
     ],
+    // 权限收敛原则：只声明「应用代码真的会用到」的权限，上架审核会逐项核对。
     // 依据 docs/ohos-plugin-matrix.md §3.1；受限权限（READ_IMAGEVIDEO 等）刻意不声明。
     // 注：富文本「读」剪贴板 ohos.permission.READ_PASTEBOARD 属 system_basic 级，
     // 普通应用证书安装期即失败（grant request permissions failed），故不声明；
-    // 读取走 ClipboardUtils.readHtml()，失败时自动回退纯文本粘贴。
+    // 读取能力已整体移除，粘贴一律降级为纯文本。
     // 「写」图片到剪贴板不需要该权限（ArkTS 桥 writeImageToPasteboard）。
+    //
+    // 已移除 ohos.permission.PUBLISH_AGENT_REMINDER：
+    // 该权限只用于 reminderAgentManager 发布**定时提醒**，而本应用的本地通知只走
+    // notificationManager 即时 publish（lib/services/local_notification_service.dart
+    // 只调用 show()，没有 zonedSchedule）；实测构建产物里它是唯一与功能无关的权限。
     "requestPermissions": [
       {
+        // 全部网络请求（dio / WebView / DOH 代理）
         "name": "ohos.permission.INTERNET"
       },
       {
+        // 判断网络可用性（连接类型变化时刷新）
         "name": "ohos.permission.GET_NETWORK_INFO"
       },
       {
-        "name": "ohos.permission.PUBLISH_AGENT_REMINDER"
-      },
-      {
+        // 扫码登录 / 相机扫码（mobile_scanner）
         "name": "ohos.permission.CAMERA",
         "reason": "$string:reason_camera",
         "usedScene": {
@@ -81,6 +87,7 @@
         }
       },
       {
+        // 语音消息录制（record）
         "name": "ohos.permission.MICROPHONE",
         "reason": "$string:reason_microphone",
         "usedScene": {

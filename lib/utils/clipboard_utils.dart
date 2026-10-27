@@ -14,8 +14,12 @@ import 'platform_utils.dart';
 /// - **写图片**：非 OHOS 走 `super_clipboard`（保留原义的 PNG 语义）；
 ///   OHOS 走自研 ArkTS 桥（`writeImageToPasteboard`：PNG → PixelMap → 系统剪贴板），
 ///   失败且有可读文本（如图片 URL）时退化为复制文本；
-/// - **读 HTML**：OHOS 走自研桥（`readClipboardHtml`），其它平台由调用方走
-///   `super_clipboard`（本类不碰 `SystemClipboard`，避免 OHOS 上取 instance 抛异常）。
+/// - **读 HTML**：OHOS **不支持**。`ohos.permission.READ_PASTEBOARD` 是
+///   system_basic 级权限，普通应用证书安装期即被拒；ArkWeb/pasteboard 的
+///   `getPrimaryHtml()` 也随之不可用。因此本类刻意不提供「读富文本」出口，
+///   OHOS 上的富文本粘贴一律降级为纯文本（调用方走 `Clipboard.getData`）。
+///   其它平台由调用方走 `super_clipboard`（本类不碰 `SystemClipboard`，
+///   避免 OHOS 上取 instance 抛异常）。
 ///
 /// 关键点：OHOS 上 **不要** 触碰 `SystemClipboard.instance`。
 abstract final class ClipboardUtils {
@@ -23,9 +27,6 @@ abstract final class ClipboardUtils {
 
   /// 是否有 super_clipboard（图片/富文本）能力（OHOS 为 false，改用自研桥）。
   static bool get supportsRichClipboard => OhosCompat.supportsRichClipboard;
-
-  /// OHOS 是否支持经自研桥访问富内容剪贴板（写图片 / 读 HTML）。
-  static bool get supportsOhosRichClipboard => PlatformUtils.isOhos;
 
   /// 复制纯文本（全平台可用，不依赖任何插件）。
   static Future<void> copyText(String text) {
@@ -68,21 +69,5 @@ abstract final class ClipboardUtils {
       await copyText(fallbackText);
     }
     return false;
-  }
-
-  /// 读取系统剪贴板中的 HTML 片段。
-  ///
-  /// 仅 OHOS 实现（走 ArkTS 桥）；其它平台返回 `null`，由调用方走
-  /// `super_clipboard` 的富文本读取路径。
-  static Future<String?> readHtml() async {
-    if (!PlatformUtils.isOhos) return null;
-    try {
-      final html = await _ohosChannel.invokeMethod<String>('readClipboardHtml');
-      if (html == null || html.trim().isEmpty) return null;
-      return html;
-    } catch (e) {
-      debugPrint('[ClipboardUtils] OHOS 读取剪贴板 HTML 失败: $e');
-      return null;
-    }
   }
 }

@@ -195,18 +195,9 @@ Future<void> _probeOhosAvifSupport() async {
   }
 
   // 2) 自编 native 库（supportsAvif 实际依赖的那条路径）
-  final native = OhosAvifCodec.instance.decode(bytes, maxDim: 256);
-  if (native == null) {
-    _logAvifProbe(
-      'native-null',
-      'available=${OhosAvifCodec.instance.isAvailable}',
-    );
-  } else {
-    _logAvifProbe(
-      'native-ok',
-      'w=${native.width} h=${native.height} rgba=${native.rgba.length}',
-    );
-  }
+  final String detail = OhosAvifCodec.instance.probe(bytes, maxDim: 256);
+  final bool ok = detail.startsWith('native-ok');
+  _logAvifProbe(ok ? 'native-ok' : 'native-null', detail);
 }
 
 void _logAvifProbe(String result, String? detail) {  try {
@@ -288,8 +279,10 @@ Future<void> _probeOhosQuickJs() async {
   }
 }
 
-/// 富文本剪贴板能力探测（仅 debug）：写一张 1×1 PNG 再读回 HTML，
-/// 确认 ArkTS 剪贴板桥可用。
+/// 剪贴板能力探测（仅 debug）：写一张 1×1 PNG，确认 ArkTS 剪贴板桥可用。
+///
+/// 只探测「写」：读 HTML 需要 system_basic 级权限 READ_PASTEBOARD，普通应用
+/// 证书拿不到，桥实现已随该结论一起移除（OHOS 富文本粘贴降级纯文本）。
 Future<void> _probeOhosClipboard() async {
   const channel = MethodChannel('com.fluxdo/ohos');
   try {
@@ -303,12 +296,6 @@ Future<void> _probeOhosClipboard() async {
     _logClipboardProbe('write-ok', null);
   } catch (e) {
     _logClipboardProbe('write-error', '$e');
-  }
-  try {
-    final html = await channel.invokeMethod<String>('readClipboardHtml');
-    _logClipboardProbe('read-ok', html == null ? 'null' : 'len=${html.length}');
-  } catch (e) {
-    _logClipboardProbe('read-error', '$e');
   }
 }
 
@@ -645,15 +632,14 @@ Future<void> main() async {
     }
   }
 
-  // AVIF 能力探测（HarmonyOS ImageKit）：确认系统能否解码 AVIF，
-  // 结果只写日志，不阻塞启动。
-  if (PlatformUtils.isOhos) {
+  // 原生能力探测一律只在 debug 跑：release 里这几项没有任何用户可见收益，
+  // 却会白跑一次 AVIF 解码 + 完整 cook bundle eval（567 KB / 约 84 ms，还要
+  // 额外建一个 JS 上下文），把冷启动拖慢。
+  if (kDebugMode && PlatformUtils.isOhos) {
     unawaited(_probeOhosAvifSupport());
     unawaited(_probeOhosQuickJs());
-    if (kDebugMode) {
-      unawaited(_probeOhosClipboard());
-      unawaited(_probeOhosNotification());
-    }
+    unawaited(_probeOhosClipboard());
+    unawaited(_probeOhosNotification());
   }
 
   // Windows 固定系统代理必须先于本地 DoH/WebView 网关读取，网关才能按

@@ -13,7 +13,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// 检查根目录（本文件位于 <repo>/tool/）。
+/// 检查根目录（本文件位于 `tool/` 下）。
 final Directory _root = File.fromUri(Platform.script).parent.parent;
 
 /// 命中即失败的字符串特征（大小写敏感，避免误报）。
