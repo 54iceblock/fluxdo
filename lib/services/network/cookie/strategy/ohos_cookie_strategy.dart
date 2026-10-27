@@ -79,15 +79,17 @@ class OhosCookieStrategy extends DefaultCookieStrategy {
     }
 
     final result = merged.values.toList(growable: false);
-    final names = result.map((cookie) => cookie.name).toSet();
-    // 排查 CF 403 的关键日志：ArkWeb 侧到底有没有 cf_clearance。
-    // 只要 jar 缺 cf_clearance，这行就能区分「ArkWeb 没有该 cookie」与
-    // 「读到了但没写进 jar」。
-    debugPrint(
-      '[CookieStrategy][OHOS] read url=$url primary=$primaryCount '
-      'merged=${result.length} names=${names.length} '
-      'hasCfClearance=${names.contains('cf_clearance')}',
-    );
+    if (kDebugMode) {
+      // 排查 CF 403 的关键日志：ArkWeb 侧到底有没有 cf_clearance。
+      // 缺 cf_clearance 时这行能区分「ArkWeb 没有该 cookie」与「读到了但没写进 jar」。
+      // 每次 cookie 同步都会打，release 里没有必要，只在 debug 输出。
+      final names = result.map((cookie) => cookie.name).toSet();
+      debugPrint(
+        '[CookieStrategy][OHOS] read url=$url primary=$primaryCount '
+        'merged=${result.length} names=${names.length} '
+        'hasCfClearance=${names.contains('cf_clearance')}',
+      );
+    }
     return result;
   }
 }
