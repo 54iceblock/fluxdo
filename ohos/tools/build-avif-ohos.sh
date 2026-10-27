@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # 在 WSL 内交叉编译 libavif + dav1d + AVIF 解码包装 → HarmonyOS 原生库
 #
 # 产物：repo/ohos/entry/libs/<abi>/libohos_avif.so
@@ -6,7 +6,16 @@
 set -euo pipefail
 
 REPO_WIN="/mnt/c/Users/iceblock/fluxdo"
-NDK="${OHOS_NDK:-/home/iceblock/ohos-ndk}"
+# NDK：优先 $OHOS_NDK；否则用 WSL 本地副本；都没有时直接用 Windows 侧 DevEco SDK
+# 的 native 目录（布局相同：sysroot/ + llvm/lib/clang/15.0.4）。
+if [ -n "${OHOS_NDK:-}" ]; then
+  NDK="$OHOS_NDK"
+elif [ -d /home/iceblock/ohos-ndk/sysroot ]; then
+  NDK=/home/iceblock/ohos-ndk
+else
+  NDK=/mnt/c/Users/iceblock/DevEcoStudio/sdk/default/openharmony/native
+fi
+[ -d "$NDK/sysroot" ] || { echo "!! 找不到 OHOS NDK sysroot：$NDK"; exit 1; }
 BIN="$HOME/ohos-bin"
 STUB_O="$BIN/lib/unwind-stub-x86_64.o"
 ARM_UNWIND="$NDK/llvm/lib/aarch64-linux-ohos/libunwind.a"

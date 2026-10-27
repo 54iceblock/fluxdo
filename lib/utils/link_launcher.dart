@@ -20,6 +20,7 @@ import '../widgets/content/discourse_html_content/image_utils.dart';
 import '../widgets/layout/home_workspace_scope.dart';
 import 'discourse_url_parser.dart';
 import 'link_security.dart';
+import 'ohos_external_url.dart';
 import 'platform_utils.dart';
 import 'url_helper.dart';
 
@@ -329,6 +330,10 @@ Future<bool> launchInExternalBrowser(String url) async {
 /// `canLaunchUrl` 恒为 false —— 附件下载与外链在 OHOS 上会「点了没反应」。
 /// 桥侧只放行 http/https/mailto/tel，避免远端内容用任意 scheme 触发本机应用。
 Future<bool> _openExternallyOnOhos(String url) async {
+  if (!OhosExternalUrl.isAllowed(url)) {
+    debugPrint('[LinkLauncher][OHOS] 拒绝打开非白名单 scheme: $url');
+    return false;
+  }
   const channel = MethodChannel('com.fluxdo/ohos');
   try {
     final opened = await channel.invokeMethod<bool>(

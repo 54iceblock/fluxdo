@@ -788,11 +788,9 @@ packages:
   flutter_local_notifications:
     dependency: "direct main"
     description:
-      path: flutter_local_notifications
-      ref: "714178b60a5d39268c6c74ec1082be559d1d121a"
-      resolved-ref: "714178b60a5d39268c6c74ec1082be559d1d121a"
-      url: "https://gitcode.com/CPF-Flutter/fluttertpc_flutter_local_notifications.git"
-    source: git
+      path: "packages/flutter_local_notifications"
+      relative: true
+    source: path
     version: "22.0.1"
   flutter_local_notifications_linux:
     dependency: transitive

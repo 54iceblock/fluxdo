@@ -5,6 +5,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_avif/flutter_avif.dart' as fa;
 import '../l10n/s.dart';
+import '../utils/fit_long_edge.dart';
 import '../utils/platform_utils.dart';
 import '../utils/scroll_busy_signal.dart';
 import 'avif_fast_bridge.dart';
@@ -104,20 +105,10 @@ Future<ui.Codec?> _tryOhosAvifCodec(Uint8List bytes, {int? maxDim}) async {
       );
       // 双保险：原生库若还是旧的（没有 max_dim 降采样），这里在 codec 实例化时
       // 再按目标长边缩放一次，避免整幅大图进 GPU/图片缓存。
-      int? targetW;
-      int? targetH;
-      if (maxDim != null &&
-          maxDim > 0 &&
-          (native.width > maxDim || native.height > maxDim)) {
-        if (native.width >= native.height) {
-          targetW = maxDim;
-        } else {
-          targetH = maxDim;
-        }
-      }
+      final target = fitLongEdge(native.width, native.height, maxDim);
       return await descriptor.instantiateCodec(
-        targetWidth: targetW,
-        targetHeight: targetH,
+        targetWidth: target?.$1,
+        targetHeight: target?.$2,
       );
     } catch (e) {
       debugPrint('[Avif] OHOS 原生解码结果转 codec 失败: $e');

@@ -1,0 +1,19 @@
+{
+  "module": {
+    "name": "flutter_local_notifications",
+    "type": "har",
+    "deviceTypes": [
+      "default",
+      "tablet"
+    ],
+    // FluxDO 本地改动：删除 ohos.permission.PUBLISH_AGENT_REMINDER。
+    // 该权限只给 reminderAgentManager（zonedSchedule 定时提醒）用，FluxDO 只调用
+    // show() 即时通知；HAR 声明的权限会被 hvigor 合并进最终 HAP，不删就会出现在
+    // 上架包里。若将来要用定时提醒，在应用 module.json5 里补回即可。见 VENDOR.md。
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.INTERNET"
+      }
+    ]
+  }
+}

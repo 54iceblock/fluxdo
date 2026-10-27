@@ -78,8 +78,8 @@ ipa *args:
 
 # 签名材料守卫：防 DevEco 把本机证书/密码写回 ohos/build-profile.json5 后误提交
 check-secrets *args:
-  @dart run tool/check_no_secrets.dart {{args}}
+  @dart tool/check_no_secrets.dart {{args}}
 
 # 检查 OHOS 专用 git 依赖是否全部锁定到 commit SHA；--portable 输出可跨平台发布的 pubspec
 check-pubspec *args:
-  @dart run tool/check_ohos_pubspec.dart {{args}}
+  @dart tool/check_ohos_pubspec.dart {{args}}

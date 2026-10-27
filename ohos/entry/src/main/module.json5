@@ -67,12 +67,10 @@
     // notificationManager 即时 publish（lib/services/local_notification_service.dart
     // 只调用 show()，没有 zonedSchedule），声明它属于「声明了但不用」。
     //
-    // ⚠️ 但实测（2026-10 重建 HAP 并解包 module.json）最终包**仍带**该权限：
-    // 它由 flutter_local_notifications 的 HAR 自带 module.json5 声明，hvigor 会把
-    // 依赖 HAR 的权限合并进产物，应用侧删自己的声明并不影响结果。要彻底去掉只能
-    // vendored 该插件并删其 `ohos/src/main/module.json5` 里的条目（未做：该权限是
-    // normal 级、安装即授予、无用户弹窗，审核风险低）。上架说明里按「依赖库自带、
-    // 本版本不使用定时提醒」写即可，见 ohos-release-plan.md 的权限说明项。
+    // ⚠️ 依赖 HAR 声明的权限会被 hvigor 合并进最终 HAP：flutter_local_notifications
+    // 的 HAR 原本自带该权限，只删这里无效（2026-10 解包实测）。因此该插件已 vendored
+    // 到 packages/flutter_local_notifications 并删掉了其 module.json5 里的条目。
+    // 新增依赖时同样要解包 HAP 核对最终权限集合，不能只看本文件。
     "requestPermissions": [
       {
         // 全部网络请求（dio / WebView / DOH 代理）
