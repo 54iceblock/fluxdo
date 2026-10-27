@@ -60,17 +60,23 @@ $env:FLUXDO_SIGN_PWD = '<密钥库口令>'   # 不设时回落到 OpenHarmony �
 |---|---|
 | 源码（权威） | `ohos/tools/ohos-avif-decode.c`（本目录；导出 `ohos_avif_decode` / `ohos_avif_free`，含 `downscale_rgba_box` 降采样） |
 | 构建脚本 | `ohos/tools/build-avif-ohos.sh`（WSL 内交叉编译） |
-| libavif | 1.4.2（`AVIF_VERSION_MAJOR/MINOR/PATCH`） |
-| dav1d | 1.5.4，静态库，`-Denable_asm=false` |
+| libavif | 1.4.2（`AVIF_VERSION_MAJOR/MINOR/PATCH`），源码 `~/.cache` 副本 `b1e4d33` |
+| dav1d | 1.5.4，静态库，`-Denable_asm=false`，源码副本 `9433da2` |
 | OHOS NDK | 26.0.0.105（API 26），clang `resource-dir=.../llvm/lib/clang/15.0.4` |
+| 主机构建环境 | Ubuntu 24.04（WSL2）：clang 18.1.3 / cmake 3.28.3 / meson 1.3.2 / ninja 1.11.1 / nasm 2.16.01 |
 | 目标 ABI | `arm64-v8a`（aarch64-linux-ohos）、`x86_64`（x86_64-linux-ohos） |
 
-**入库二进制的校验值（2026-10-27 复核）**
+**入库二进制的校验值（2026-10-27 复核，且已重编验证可复现）**
 
 | 产物 | 大小 | SHA-256 |
 |---|---|---|
 | `ohos/entry/libs/arm64-v8a/libohos_avif.so` | 898,968 B | `0B0170BAE75AE495111EB30BD27483E7BE470CB5F14386E0A4D3D7F5B2B6930E` |
 | `ohos/entry/libs/x86_64/libohos_avif.so` | 1,068,200 B | `68F88BC4B8ED4611E43B11E020AF2FAEB6275864582D295E804530DB7A870504` |
+
+> **可复现性结论（2026-10-27 实测）**：在 Ubuntu-24.04 WSL 里用上述工具链、按
+> `build-avif-ohos.sh` 从 `ohos/tools/ohos-avif-decode.c` 重新交叉编译两个 ABI，
+> 产物与入库二进制的 **SHA-256 完全一致**（大小也一致），说明入库 `.so` 确实由当前
+> 提交的源码产出，没有夹带未入库的改动。重编日志见 `.tmp/avif-rebuild/`。
 
 **复核步骤**
 
