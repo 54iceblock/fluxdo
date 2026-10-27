@@ -378,9 +378,10 @@ class CfChallengeInterceptor extends Interceptor {
               PlatformUtils.isOhos &&
               canUseBrowserStack &&
               !retryHeaderHasClearance;
-          if (PlatformUtils.isOhos && retryStillBlockedByCf) {
+          if (PlatformUtils.isOhos && retryStillBlockedByCf && kDebugMode) {
             // 判定行：无论走不走兜底，都把三个闸门值打出来，避免「没触发」
             // 时只能靠猜（上一轮就是卡在 canUseBrowserStack=false）。
+            // 每个被 CF 挡的请求都会打，release 里只在真正切换兜底时记 warning。
             debugPrint(
               '[Dio][OHOS] 重试仍被 CF 挡: '
               'hasClearance=${retryHeaderHasClearance ? 1 : 0} '
