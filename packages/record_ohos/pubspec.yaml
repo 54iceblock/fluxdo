@@ -1,0 +1,29 @@
+name: record_ohos
+description: Ohos specific implementation for record package called by record_platform_interface.
+version: 1.0.0
+homepage: https://gitee.com/openharmony-sig/fluttertpc_record
+
+environment:
+  sdk: '>=2.19.6 <4.0.0'
+  flutter: ">=3.7.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # record 7.x uses record_platform_interface ^2.1.0; the Dart facade in this
+  # package already matches the 2.x API shape (RecordConfig etc.).
+  record_platform_interface: ^2.1.0
+  # Relaxed from ^3.0.7: only Uuid().v4() is used, which is unchanged in 4.x.
+  uuid: '>=3.0.7 <5.0.0'
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  plugin:
+    implements: record
+    platforms:
+      ohos:
+        package: com.example.record_ohos
+        pluginClass: RecordOhosPlugin

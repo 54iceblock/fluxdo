@@ -1955,11 +1955,9 @@ packages:
   record_ohos:
     dependency: "direct main"
     description:
-      path: "."
-      ref: "851a667b5665611b068533e52ea16d06461a956f"
-      resolved-ref: "851a667b5665611b068533e52ea16d06461a956f"
-      url: "https://github.com/ClosedHarmony/record_ohos.git"
-    source: git
+      path: "packages/record_ohos"
+      relative: true
+    source: path
     version: "1.0.0"
   record_platform_interface:
     dependency: transitive
