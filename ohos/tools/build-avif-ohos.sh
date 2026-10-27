@@ -131,9 +131,10 @@ EOF
     x86_64)  extra="$STUB_O" ;;
     aarch64) extra="$ARM_UNWIND" ;;
   esac
+  # 用仓库内的权威源码（ohos/tools/ 是版本化的权威副本），不要用工作区 tools/ 的过期副本
   "$cc" -shared -fPIC -O2 \
     -I "$REPO_WIN/.cache/libavif/include" -I "$prefix/include" \
-    "$REPO_WIN/tools/ohos-avif-decode.c" \
+    "$REPO_WIN/repo/ohos/tools/ohos-avif-decode.c" \
     "$avif_lib" "$prefix/lib/libdav1d.a" "$extra" \
     -lm -o "$outdir/libohos_avif.so" 2> "$bdir/wrapper-build.log" || {
       echo "!! wrapper 编译失败"; tail -25 "$bdir/wrapper-build.log"; return 1; }

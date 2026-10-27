@@ -69,8 +69,9 @@ void main() {
     });
   });
 
-  // 下面几组断言钉住的是「只在模拟器上才暴露」的两个缺陷的修复。
-  // 没有它们，下次重构很容易把顺序改回去，问题又会静默复发。
+  // 下面断言钉住的是「只在模拟器上才暴露」的外链缺陷修复。
+  // 没有它，下次重构很容易把顺序改回去，问题又会静默复发。
+  // AVIF 解码顺序的同类断言在 test/services/avif_image_provider_order_test.dart。
   group('OHOS 平台分支顺序（真机回归）', () {
     /// 去掉注释，避免说明性文字里的关键字造成误判。
     String stripComments(String src) => src
@@ -95,26 +96,6 @@ void main() {
         canLaunchIndex == -1 || ohosIndex < canLaunchIndex,
         isTrue,
         reason: 'OHOS 分支必须在 canLaunchUrl 之前 return',
-      );
-    });
-
-    test('AVIF 必须自编 libavif 优先，引擎 codec 只能兜底', () {
-      final src = stripComments(
-        File('lib/services/avif_image_provider.dart').readAsStringSync(),
-      );
-      final body = RegExp(
-        r'Future<ui\.Codec\?> _tryPlatformAvifCodec\(([\s\S]*?)\n\}',
-      ).firstMatch(src)?.group(0);
-      expect(body, isNotNull, reason: '未找到 _tryPlatformAvifCodec');
-      final ohosIndex = body!.indexOf('_tryOhosAvifCodec');
-      final engineIndex = body.indexOf('_tryEngineAvifCodec');
-      expect(ohosIndex, greaterThan(-1));
-      expect(engineIndex, greaterThan(-1));
-      // 引擎对 AVIF 会「成功返回 codec 但取帧为空」，先试引擎就永远到不了自编库
-      expect(
-        ohosIndex < engineIndex,
-        isTrue,
-        reason: 'OHOS 必须先试自编 libavif，否则 AVIF 图片会显示破损占位符',
       );
     });
   });
