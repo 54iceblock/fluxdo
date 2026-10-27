@@ -17,7 +17,7 @@
 | 时区 | P0 | ✅ ArkTS 桥 + Dart 接入 | 无（无需权限） | `TimeUtils.localTimezone` = 真实 IANA 名，不再恒为 UTC |
 | 保存到相册 | P1 | ✅ 优先 saver_gallery | 无（走系统保存确认框，不需要 READ_IMAGEVIDEO） | 弹系统「保存到相册」框，成功入图库；失败回落文件保存 |
 | 剪贴板兜底 | P1 | ✅ 4/6 调用点已改（2 处 pages 超出本任务写入范围，见 §4.3） | 无 | OHOS 上不再因 super_clipboard 抛异常；图片复制降级为复制链接 |
-| 本地通知 | P1 | ✅ 补 `OhosInitializationSettings` + 权限请求 + OHOS 渠道参数 | `PUBLISH_AGENT_REMINDER` 已在 module.json5 | 初始化不再抛 ArgumentError；首次启动弹通知授权；通知可发布/点击跳转 |
+| 本地通知 | P1 | ✅ 补 `OhosInitializationSettings` + 权限请求 + OHOS 渠道参数 | 无（`PUBLISH_AGENT_REMINDER` 已移除，即时通知不需要） | 初始化不再抛 ArgumentError；首次 `show()` 时懒申请通知授权（首次安装的「允许发送通知」弹窗是系统一次性询问）；通知可发布/点击跳转 |
 | 深链 | P1 | ✅ Dart 侧加冷启动重试与错误兜底（app_links fork 已负责 want） | `fluxdo://`/`discourse://` 已在 module.json5 | 冷启动/热启动都能取到 URI 并跳页 |
 
 ---
@@ -389,8 +389,10 @@ fork 的 Dart 实现（`.pub-cache/git/fluttertpc_flutter_local_notifications-..
 - ArkTS `initialize` 会 `resourceManager.getMediaByName(defaultIcon)` 校验图标资源，
   找不到会 `result.error(ERROR_INVALID_ICON)`；这里用 entry 里确定存在的 **`icon`**
   （`repo/ohos/entry/src/main/resources/base/media/icon.png`，module.json5 的 `$media:icon`）。
-- `PUBLISH_AGENT_REMINDER`：module.json5 已声明（`zonedSchedule` 的提醒代理需要；即时
-  `show()` 不依赖它）。不用新增权限。
+- `PUBLISH_AGENT_REMINDER`：**已移除**。它只给 `zonedSchedule` 的提醒代理用，FluxDO 只调
+  即时 `show()`，不依赖它。注意 HAR 声明的权限会被 hvigor 合并进最终 HAP，所以除了应用侧
+  `module.json5`，还在 vendored `packages/flutter_local_notifications/ohos/src/main/module.json5`
+  里删除了该条（见该包 `VENDOR.md`）。若将来要用定时提醒，在应用 `module.json5` 补回即可。
 
 ### 5.2 实现位置
 

@@ -14,7 +14,7 @@
     // DevEco Studio 做「自动签名」时会**自动写回这里**——提交前请检查：
     //     git diff -- ohos/build-profile.json5
     // 或直接跑守卫脚本（CI 同款）：
-    //     dart run tool/check_no_secrets.dart      # 加 --fix 可自动复位
+    //     dart tool/check_no_secrets.dart          # 加 --fix 可自动复位
     //     just check-secrets
     "signingConfigs": [],
     "products": [

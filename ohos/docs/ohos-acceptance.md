@@ -2,7 +2,7 @@
 > ⚠️ **2026-10 审核后状态：本文档部分内容已过时。**
 > 后台保活（系统长时任务 DATA_TRANSFER / `KEEP_BACKGROUND_RUNNING` / `backgroundModes`）已在 `e63e3be`、`c9578bb` 中整体移除；
 > 剪贴板「读富文本」因依赖 system_basic 级 `READ_PASTEBOARD` 已移除（粘贴降级纯文本）；
-> `ohos.permission.PUBLISH_AGENT_REMINDER` 已从应用侧 `module.json5` 删除（最终包仍由依赖 HAR 带入，见 README.md）。
+> `ohos.permission.PUBLISH_AGENT_REMINDER` 已从最终 HAP 移除：应用侧 `module.json5` 删除声明，且 vendored `packages/flutter_local_notifications` 删除了其 HAR 内的同名声明（HAR 权限会被 hvigor 合并进 HAP，见 README.md 与该包 `VENDOR.md`）。
 > 以代码与 [README.md](README.md) 末尾的「本轮审核后的内容修订」为准。
 
 

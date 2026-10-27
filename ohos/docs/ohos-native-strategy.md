@@ -972,14 +972,14 @@ ArkTS 桥把 AVIF 解成 RGBA 再交给 Flutter 引擎（`ImageDescriptor.raw`�
 | 能力 | 实现 | 状态 |
 |---|---|---|
 | 复制图片到系统剪贴板 | `writeImageToPasteboard`：PNG → ImageKit `createPixelMap` → `pasteboard.createData(MIMETYPE_PIXELMAP, …)` → `setData` | ✅ 设备日志 `write-ok` |
-| 读取剪贴板 HTML（富文本粘贴） | `readClipboardHtml`：`getData().getPrimaryHtml()` | ⚠️ 无 `READ_PASTEBOARD` 权限时返回 null，自动回退纯文本粘贴 |
+| 读取剪贴板 HTML（富文本粘贴） | ~~`readClipboardHtml`~~ **已移除**（`f661899`）：普通证书拿不到 `READ_PASTEBOARD`，该路径恒失败 | ❌ 不支持，OHOS 粘贴固定走纯文本 |
 | 读取剪贴板图片 | 未实现（移动端场景极少，保持原降级） | ⚠️ 降级 |
 
 **权限限制（重要）**：`ohos.permission.READ_PASTEBOARD` 属 **system_basic** 级，
 普通应用证书安装期直接失败：
 `install failed due to grant request permissions failed. PermissionName: ohos.permission.READ_PASTEBOARD`
-→ 不声明该权限；读剪贴板 HTML 尽力而为（`getPrimaryHtml` 无权限时抛错被 catch，返回 null）。
+→ 不声明该权限；读剪贴板 HTML 的桥方法与 Dart 分支已整体删除（审核后修订，`f661899`）。
 写剪贴板不需要权限，因此「复制图片」在普通应用上可用。
 
-Dart 侧：`ClipboardUtils`（`copyPngImage` OHOS 分支、`readHtml()`）；
-`rich_composer_editor._importRichPaste` OHOS 先试 readHtml，失败回退纯文本。
+Dart 侧：`ClipboardUtils.copyPngImage` 的 OHOS 分支（只写）；
+`rich_composer_editor._importRichPaste` 在 OHOS 上直接走纯文本粘贴。
