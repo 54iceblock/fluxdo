@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """FluxDO 真机 mock 测试用的最小 Discourse 服务。
 
 用途：把应用 baseUrl 指向本机（真机通过 `hdc rport` 端口转发），
@@ -20,7 +20,11 @@ import sys
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+
+# 仓库根（本文件在 <repo>/ohos/tools/mock-discourse/ 下）
+_ROOT = Path(__file__).resolve().parents[3]
 
 MOCK_USER = {
     "id": 4242,
@@ -199,6 +203,14 @@ def make_post(post_number: int, topic_id: int, cooked: str | None = None) -> dic
 def topic_detail(tid: int) -> dict:
     t = next((x for x in TOPICS if x["id"] == tid), TOPICS[0])
     posts = [make_post(i, t["id"]) for i in range(1, min(t["posts_count"], 6) + 1)]
+    # 首帖插一张 AVIF：用于验证 OHOS 上的 AVIF 解码链路
+    # （自研 libavif + dav1d + 后台 isolate + maxDim 降采样）。
+    if posts:
+        posts[0]["cooked"] = (
+            "<p>【Mock】AVIF 解码验证：下面这张图是 AVIF 格式。</p>"
+            '<p><img src="/mock/avif.avif" alt="avif" width="600"></p>'
+            "<p>如果能看到图片，说明解码与渲染链路正常。</p>"
+        )
     t = dict(t)
     t["post_stream"] = {
         "posts": posts,
@@ -463,6 +475,21 @@ class Handler(BaseHTTPRequestHandler):
                 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
             )
             self._send(png, content_type="image/png")
+            return
+
+        if path.startswith("/mock/avif"):
+            # AVIF 用例图：直接复用仓库里的探针样图 assets/probe/avif-probe.avif。
+            # 用途：在 OHOS 上验证 AVIF 解码链路（自研 libavif + dav1d + 后台 isolate）。
+            # 注意路径要带 `.avif` 后缀：应用按 URL 扩展名决定是否走 AVIF 解码器，
+            # 裸 `/mock/avif` 会被当成未知格式（实测图片破损）。
+            for cand in (
+                _ROOT / "assets" / "probe" / "avif-probe.avif",
+                _ROOT / "ohos" / "tools" / "mock-discourse" / "avif-probe.avif",
+            ):
+                if cand.exists():
+                    self._send(cand.read_bytes(), content_type="image/avif")
+                    return
+            self._send({}, status=404)
             return
 
         # 其它一律 200 空对象，避免应用因未 mock 的接口崩溃
