@@ -102,7 +102,23 @@ Future<ui.Codec?> _tryOhosAvifCodec(Uint8List bytes, {int? maxDim}) async {
         rowBytes: native.width * 4,
         pixelFormat: ui.PixelFormat.rgba8888,
       );
-      return await descriptor.instantiateCodec();
+      // 双保险：原生库若还是旧的（没有 max_dim 降采样），这里在 codec 实例化时
+      // 再按目标长边缩放一次，避免整幅大图进 GPU/图片缓存。
+      int? targetW;
+      int? targetH;
+      if (maxDim != null &&
+          maxDim > 0 &&
+          (native.width > maxDim || native.height > maxDim)) {
+        if (native.width >= native.height) {
+          targetW = maxDim;
+        } else {
+          targetH = maxDim;
+        }
+      }
+      return await descriptor.instantiateCodec(
+        targetWidth: targetW,
+        targetHeight: targetH,
+      );
     } catch (e) {
       debugPrint('[Avif] OHOS 原生解码结果转 codec 失败: $e');
     }
