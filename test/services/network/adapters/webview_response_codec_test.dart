@@ -85,6 +85,29 @@ void main() {
       expect(await transport.usesBase64(), isFalse);
     });
 
+    test('HarmonyOS（forceBase64）强制 base64 分块，且不查询原生能力', () async {
+      // 实测：ArkWeb 的 MessagePort 收不到 ArrayBuffer ——
+      // status=200/content_length=80743 但 Dart 侧 bytes=0/chunks=0，
+      // 表现为 WebView 网络栈下图片/附件全坏。必须走 base64 字符串。
+      final transport = WebViewResponseTransport(
+        isAndroid: false,
+        forceBase64: true,
+        supportsArrayBuffer: () => throw StateError('不应查询'),
+      );
+      expect(await transport.usesBase64(), isTrue);
+
+      final sent = await runSender(
+        useBase64: true,
+        buffers: [
+          [0, 128, 255],
+        ],
+      );
+      final message = (sent['messages'] as List).single as Map;
+      expect(message['kind'], 'chunk');
+      expect(message['encoding'], 'base64');
+      expect(base64Decode(message['data'] as String), [0, 128, 255]);
+    });
+
     test('并发图片共享同一个未完成的能力查询', () async {
       var calls = 0;
       final capability = Completer<bool>();

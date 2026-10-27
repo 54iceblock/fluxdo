@@ -11,6 +11,34 @@ import '../utils/scroll_busy_signal.dart';
 import 'avif_fast_bridge.dart';
 import 'avif_ohos_codec.dart';
 import 'blob_image_cache.dart';
+import 'log/log_writer.dart';
+
+/// AVIF 解码链路诊断日志（写应用日志文件，跑真机时可用 `hdc file recv` 回读）。
+///
+/// 背景：OHOS 上出现过「图片破损但 hilog 里没有任何解码日志」的情况，仅靠
+/// debugPrint 无法判断到底走了哪条分支（引擎 codec / 自编 libavif / ImageKit /
+/// Rust 桥）。这里把每个分支的结果落盘，排查时一次就能定位。
+void _avifTrace(String step, [Map<String, Object?>? extra]) {
+  // release 只留失败分支，避免每张图都写 2~3 条正常路径日志把用户日志刷满。
+  if (kReleaseMode &&
+      !step.contains('null') &&
+      !step.contains('throw') &&
+      !step.contains('unavailable')) {
+    return;
+  }
+  try {
+    LogWriter.instance.write(<String, dynamic>{
+      'level': 'info',
+      'type': 'image',
+      'event': 'avif_trace',
+      'step': step,
+      'platform': 'ohos',
+      if (extra != null) ...extra,
+    });
+  } catch (_) {
+    // 日志失败不影响解码
+  }
+}
 
 /// 限制并发 AVIF 解码数(thumbnail batch 场景)。
 ///
@@ -41,13 +69,29 @@ bool _avifPlatformCodecUnavailable = false;
 /// 要在主 isolate 上做 protobuf 解析拷贝 + `Uint8List.fromList` +
 /// `decodeImageFromPixels` 三次 MB 级搬运,静态大图首次解码卡顿的大头在此。
 Future<ui.Codec?> _tryPlatformAvifCodec(Uint8List bytes, {int? maxDim}) async {
-  final engineCodec = await _tryEngineAvifCodec(bytes, maxDim: maxDim);
-  if (engineCodec != null) return engineCodec;
-  // HarmonyOS：引擎（Skia）不带 AVIF 解码器，但系统 ImageKit 支持，
-  // 走自研 ArkTS 桥解码为 RGBA 再构造成引擎可用的 codec。
+  // HarmonyOS 必须**先**走自编 libavif + dav1d。
+  //
+  // 实测（API 26 模拟器，2026-10）：引擎的 `ImageDescriptor.encoded` +
+  // `instantiateCodec` 对 AVIF 会**成功返回 codec**（日志里能看到系统
+  // `AvifDecoderImpl: InitFrameInfo width:1204 height:800`），但真正取帧渲染时
+  // 得到的是空图 —— 表现就是正文里的 AVIF 显示成破损占位符，且没有任何错误日志。
+  // 之前「先引擎、失败再自编库」的顺序因此永远不会回落到自编库。
+  // 自编库这条路径已实测可用（avif_probe native-ok w=256 h=170），故置为首选，
+  // 引擎 codec 只作最后兜底（真机上若引擎真能解，也不会更差）。
   if (PlatformUtils.isOhos) {
-    return _tryOhosAvifCodec(bytes, maxDim: maxDim);
+    final ohosCodec = await _tryOhosAvifCodec(bytes, maxDim: maxDim);
+    if (ohosCodec != null) return ohosCodec;
+    _avifTrace('ohos_codec_null_fallback_engine');
+    final ohosEngine = await _tryEngineAvifCodec(bytes, maxDim: maxDim);
+    _avifTrace(ohosEngine == null ? 'engine_codec_null' : 'engine_codec_ok');
+    return ohosEngine;
   }
+  final engineCodec = await _tryEngineAvifCodec(bytes, maxDim: maxDim);
+  if (engineCodec != null) {
+    _avifTrace('engine_codec_ok', <String, Object?>{'bytes': bytes.length});
+    return engineCodec;
+  }
+  _avifTrace('engine_codec_null', <String, Object?>{'bytes': bytes.length});
   return null;
 }
 
@@ -94,6 +138,12 @@ Future<ui.Codec?> _tryOhosAvifCodec(Uint8List bytes, {int? maxDim}) async {
   // decode() 在常驻后台 isolate 里跑 FFI，主线程不再被整幅 RGBA 解码阻塞。
   final native = await OhosAvifCodec.instance.decode(bytes, maxDim: maxDim);
   if (native != null) {
+    _avifTrace('native_ok', <String, Object?>{
+      'w': native.width,
+      'h': native.height,
+      'rgba': native.rgba.length,
+      'maxDim': maxDim ?? 0,
+    });
     try {
       final buffer = await ui.ImmutableBuffer.fromUint8List(native.rgba);
       final descriptor = ui.ImageDescriptor.raw(
@@ -106,16 +156,23 @@ Future<ui.Codec?> _tryOhosAvifCodec(Uint8List bytes, {int? maxDim}) async {
       // 双保险：原生库若还是旧的（没有 max_dim 降采样），这里在 codec 实例化时
       // 再按目标长边缩放一次，避免整幅大图进 GPU/图片缓存。
       final target = fitLongEdge(native.width, native.height, maxDim);
-      return await descriptor.instantiateCodec(
+      final codec = await descriptor.instantiateCodec(
         targetWidth: target?.$1,
         targetHeight: target?.$2,
       );
+      _avifTrace('native_codec_ok');
+      return codec;
     } catch (e) {
+      _avifTrace('native_codec_throw', <String, Object?>{'error': '$e'});
       debugPrint('[Avif] OHOS 原生解码结果转 codec 失败: $e');
     }
+  } else {
+    _avifTrace('native_null');
   }
   // 兜底：系统 ImageKit（实测多数设备只能解析容器头，解码会失败）
-  return _tryOhosAvifCodecViaImageKit(bytes, maxDim: maxDim);
+  final fallback = await _tryOhosAvifCodecViaImageKit(bytes, maxDim: maxDim);
+  _avifTrace(fallback == null ? 'imagekit_null' : 'imagekit_ok');
+  return fallback;
 }
 
 /// 走 ArkTS 桥、由系统 ImageKit 解码（兜底路径）。
@@ -317,6 +374,13 @@ class AvifImageProvider extends ImageProvider<AvifImageProvider> {
   /// (理论上只有 web)才落官方 `MultiFrameAvifCodec`。
   static Future<fa.AvifCodec> _createCodec(AvifImageProvider key) async {
     final bytes = await BlobImageCache.fetch(key.bucket, key.url);
+    _avifTrace('create_codec', <String, Object?>{
+      'url': key.url,
+      'bytes': bytes.length,
+      'maxDim': key.maxDimension ?? 0,
+      'animated': _looksAnimatedAvif(bytes),
+      'platformUnavailable': _avifPlatformCodecUnavailable,
+    });
     if (!_avifPlatformCodecUnavailable && !_looksAnimatedAvif(bytes)) {
       final platformCodec =
           await _tryPlatformAvifCodec(bytes, maxDim: key.maxDimension);
@@ -326,8 +390,10 @@ class AvifImageProvider extends ImageProvider<AvifImageProvider> {
       // 静态 AVIF 平台解不了 → 断定平台无 AVIF 支持,后续不再白试。
       // (即使是文件损坏导致的误判,效果也只是回到全 Rust 现状。)
       _avifPlatformCodecUnavailable = true;
+      _avifTrace('platform_codec_unavailable');
     }
     if (AvifFastBridge.available) {
+      _avifTrace('use_fast_bridge');
       final codec = _FastAvifCodec(
         key: '${_avifCodecKeySeq++}',
         maxDim: key.maxDimension,
@@ -335,6 +401,7 @@ class AvifImageProvider extends ImageProvider<AvifImageProvider> {
       await codec.init(bytes);
       return codec;
     }
+    _avifTrace('use_multiframe_codec');
     final codec = fa.MultiFrameAvifCodec(
       key: _avifCodecKeySeq++,
       avifBytes: bytes,

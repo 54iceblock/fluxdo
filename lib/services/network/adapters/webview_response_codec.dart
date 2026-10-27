@@ -3,17 +3,29 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 /// 按原生消息桥能力选择下载编码，并合并同一适配器的并发查询。
-/// JS 支持 ArrayBuffer 不代表 AndroidX 消息桥支持，不能发送二进制试探。
+/// JS 支持 ArrayBuffer 不代表原生消息桥支持，不能发送二进制试探。
 class WebViewResponseTransport {
   WebViewResponseTransport({
     required bool isAndroid,
     required Future<bool> Function() supportsArrayBuffer,
+    bool forceBase64 = false,
     Duration queryTimeout = const Duration(seconds: 3),
   }) : _isAndroid = isAndroid,
+       _forceBase64 = forceBase64,
        _supportsArrayBuffer = supportsArrayBuffer,
        _queryTimeout = queryTimeout;
 
   final bool _isAndroid;
+
+  /// 平台的消息桥只能可靠传字符串时强制 base64 分块。
+  ///
+  /// HarmonyOS（ArkWeb + flutter_inappwebview_ohos）：MessagePort 上
+  /// `postMessage(ArrayBuffer, [ArrayBuffer])` 既不会抛错也到不了 Dart ——
+  /// 实测 `status=200, content_length=80743` 但 Dart 侧 `bytes=0, chunks=0`，
+  /// 表现为 WebView 网络栈下所有二进制资源（图片/附件）损坏。控制消息是 JSON
+  /// 字符串，所以「头到了、数据没到」。必须走 base64 字符串分块。
+  final bool _forceBase64;
+
   final Future<bool> Function() _supportsArrayBuffer;
   final Duration _queryTimeout;
   Future<bool>? _useBase64;
@@ -21,6 +33,7 @@ class WebViewResponseTransport {
   Future<bool> usesBase64() => _useBase64 ??= _resolve();
 
   Future<bool> _resolve() async {
+    if (_forceBase64) return true;
     if (!_isAndroid) return false;
     try {
       return !await _supportsArrayBuffer().timeout(_queryTimeout);

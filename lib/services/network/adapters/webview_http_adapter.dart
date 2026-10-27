@@ -75,6 +75,10 @@ class WebViewHttpAdapter implements HttpClientAdapter {
   static const String defaultApiFetchCacheMode = 'no-store';
   final _responseTransport = WebViewResponseTransport(
     isAndroid: Platform.isAndroid,
+    // HarmonyOS：ArkWeb 的 MessagePort 收不到 ArrayBuffer（实测 bytes=0/chunks=0，
+    // 只有 JSON 字符串控制消息能过），二进制必须走 base64 分块，否则 WebView
+    // 网络栈下图片/附件全部损坏。见 WebViewResponseTransport._forceBase64。
+    forceBase64: PlatformUtils.isOhos,
     supportsArrayBuffer: () => WebViewFeature.isFeatureSupported(
       WebViewFeature.WEB_MESSAGE_ARRAY_BUFFER,
     ),
