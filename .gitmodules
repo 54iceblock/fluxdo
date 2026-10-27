@@ -3,4 +3,7 @@
 	url = https://github.com/Lingyan000/fluxdo_doh.git
 [submodule "packages/fluxdo_render"]
 	path = packages/fluxdo_render
-	url = https://github.com/Lingyan000/fluxdo_render.git
+	# OHOS 移植：指向 fork 的 ohos-port 分支（上游 main + TargetPlatform.ohos 补丁 8c18e80）。
+	# 上游合入该补丁后改回 https://github.com/Lingyan000/fluxdo_render.git 即可。
+	url = https://github.com/54iceblock/fluxdo_render.git
+	branch = ohos-port
