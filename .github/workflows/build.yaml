@@ -73,6 +73,11 @@ jobs:
         with:
           submodules: recursive
 
+      # 守卫：ohos/build-profile.json5 曾被提交过本机签名密码/证书路径。
+      # 构建前先卡一遍，避免再次泄漏（脚本见 tool/check_no_secrets.dart）。
+      - name: Check for committed signing material
+        run: dart run tool/check_no_secrets.dart
+
       - name: Setup Java
         if: startsWith(matrix.platform, 'android')
         uses: actions/setup-java@v4

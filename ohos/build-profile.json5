@@ -1,25 +1,22 @@
 {
   "app": {
-    // 刻意留空：脚本化构建（tools\build-ohos.ps1）不依赖 hvigor 内置签名。
-    // 手工/DevEco 调试签名在构建之后由 tools\ohos-sign.ps1 完成（OpenHarmony 默认证书链）。
-    // 注意：若 DevEco Studio 打开工程后自动写入 signingConfigs（含加密密码），
-    // assembleHap 会在 SignHap 阶段报 "No permission write to signConfigCheckJson.json"，
-    // 需要把这里恢复成空数组再跑脚本构建。
-    "signingConfigs": [
-      {
-        "name": "default",
-        "type": "HarmonyOS",
-        "material": {
-          "certpath": "C:\\Users\\iceblock\\.ohos\\config\\default_ohos_<scrubbed>.cer",
-          "keyAlias": "debugKey",
-          "keyPassword": "<scrubbed>",
-          "profile": "C:\\Users\\iceblock\\.ohos\\config\\default_ohos_<scrubbed>.p7b",
-          "signAlg": "SHA256withECDSA",
-          "storeFile": "C:\\Users\\iceblock\\.ohos\\config\\default_ohos_<scrubbed>.p12",
-          "storePassword": "<scrubbed>"
-        }
-      }
-    ],
+    // ⚠️ 本文件必须保持 signingConfigs 为空数组，且**不得提交任何签名材料**。
+    //
+    // 原因：
+    //  1) 脚本化构建（tools\build-ohos.ps1）不依赖 hvigor 内置签名：assembleHap 之后
+    //     由 tools\ohos-sign.ps1 用 OpenHarmony 默认证书链手工签名。
+    //  2) 一旦这里存在 signingConfigs（含 DevEco 加密后的 keyPassword/storePassword
+    //     与开发者本机绝对路径），assembleHap 会在 SignHap 阶段报
+    //     "No permission write to signConfigCheckJson.json"，脚本构建直接失败。
+    //  3) 这些是本机私密材料，提交进 git 即泄露（即使只是 DevEco 自动生成的调试证书，
+    //     也可能被换成正式证书后忘记清理）。
+    //
+    // DevEco Studio 做「自动签名」时会**自动写回这里**——提交前请检查：
+    //     git diff -- ohos/build-profile.json5
+    // 或直接跑守卫脚本（CI 同款）：
+    //     dart run tool/check_no_secrets.dart      # 加 --fix 可自动复位
+    //     just check-secrets
+    "signingConfigs": [],
     "products": [
       {
         "name": "default",
