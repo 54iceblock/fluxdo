@@ -49,3 +49,46 @@ $env:FLUXDO_SIGN_PWD = '<密钥库口令>'   # 不设时回落到 OpenHarmony �
 
 > 调试证书链（OpenHarmony 默认）口令是公开值，仅够本机/开发板调试；正式证书
 > 请走 DevEco 自动签名或自建证书，并把口令放进环境变量。
+
+## AVIF 原生库（`libohos_avif.so`）的来源与校验
+
+`.so` 是**二进制入库**的，CI 不编译 OHOS（`build.yaml` 矩阵只有 android/ios/macos/windows），
+所以这里把「哪个源码 + 什么工具链 + 期望的哈希」固定下来，便于复核二进制有没有被替换、
+或者源码改了却没重编。
+
+| 项 | 值 |
+|---|---|
+| 源码（权威） | `ohos/tools/ohos-avif-decode.c`（本目录；导出 `ohos_avif_decode` / `ohos_avif_free`，含 `downscale_rgba_box` 降采样） |
+| 构建脚本 | `ohos/tools/build-avif-ohos.sh`（WSL 内交叉编译） |
+| libavif | 1.4.2（`AVIF_VERSION_MAJOR/MINOR/PATCH`） |
+| dav1d | 1.5.4，静态库，`-Denable_asm=false` |
+| OHOS NDK | 26.0.0.105（API 26），clang `resource-dir=.../llvm/lib/clang/15.0.4` |
+| 目标 ABI | `arm64-v8a`（aarch64-linux-ohos）、`x86_64`（x86_64-linux-ohos） |
+
+**入库二进制的校验值（2026-10-27 复核）**
+
+| 产物 | 大小 | SHA-256 |
+|---|---|---|
+| `ohos/entry/libs/arm64-v8a/libohos_avif.so` | 898,968 B | `0B0170BAE75AE495111EB30BD27483E7BE470CB5F14386E0A4D3D7F5B2B6930E` |
+| `ohos/entry/libs/x86_64/libohos_avif.so` | 1,068,200 B | `68F88BC4B8ED4611E43B11E020AF2FAEB6275864582D295E804530DB7A870504` |
+
+**复核步骤**
+
+```powershell
+# 1) 看当前入库二进制的哈希是否与上表一致
+Get-FileHash -Algorithm SHA256 repo\ohos\entry\libs\*\libohos_avif.so
+# 2) 需要重编时（WSL 内，需 clang/cmake/meson/ninja/nasm）
+bash ohos/tools/build-avif-ohos.sh
+# 3) 重编后哈希不一致时，至少确认导出符号与内嵌字符串没问题
+llvm-nm.exe -D --defined-only repo\ohos\entry\libs\arm64-v8a\libohos_avif.so | Select-String ohos_avif
+#    期望：T ohos_avif_decode / T ohos_avif_free
+strings repo\ohos\entry\libs\arm64-v8a\libohos_avif.so | Select-String 'C:\\Users'
+#    期望：无输出（不能把本机绝对路径打进产物）
+```
+
+> 交叉编译产物通常无法逐字节复现（时间戳、构建路径会进 `.comment` / `__FILE__`），
+> 因此哈希只作为「和本次提交的二进制是否同一份」的指纹，不作为「能否重建」的判据；
+> 判据是导出符号 + 行为（`ohos/tools` 里的 `avif_probe` 或真机日志）。
+>
+> 改 `ohos-avif-decode.c` 之后必须重编并把上表两行哈希一起更新，否则入库二进制与源码脱节。
+
