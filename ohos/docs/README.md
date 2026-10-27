@@ -56,6 +56,18 @@ robocopy C:\Users\iceblock\fluxdo\docs C:\Users\iceblock\fluxdo\repo\ohos\docs *
   Dart 侧改为常驻后台 isolate；`libohos_avif.so`（x86_64 / arm64）已用新源码重编入库。
   改动 `tools/ohos-avif-decode.c` 后要重编：`wsl bash tools/build-avif-ohos.sh`
   （WSL 本地 NDK 不在时脚本会自动改用 DevEco SDK 的 `native/` 目录）。
+- **OHOS 上 AVIF 必须走自编 libavif，不能信引擎 codec**（模拟器实测）：引擎的
+  `ImageDescriptor.encoded` + `instantiateCodec` 对 AVIF 会成功返回 codec，但取帧是
+  空图，表现为正文 AVIF 显示破损占位符且**无任何错误日志**。`avif_image_provider`
+  已改为 OHOS 优先自编库、引擎仅兜底。排查同类问题可用新增的 `avif_trace` 日志
+  （写在应用日志文件 `files/flutter/logs/app_log.jsonl`，`hdc file recv` 回读）。
+- **WebView 网络栈的二进制传输必须用 base64**（模拟器实测）：ArkWeb 的 MessagePort
+  收不到 `ArrayBuffer`（`postMessage(buf,[buf])` 既不抛错也到不了 Dart，表现为
+  `status=200` 但 `bytes=0`、图片/附件全坏）。`WebViewResponseTransport` 已加
+  `forceBase64`，OHOS 强制 base64 字符串分块。
+- mock 联调已内置 AVIF 回归用例：`ohos/tools/mock-discourse` 的
+  `/mock/avif.avif`（复用 `assets/probe/avif-probe.avif`），首帖自动内嵌该图。
+  ⚠️ 图片 URL 必须带 `.avif` 后缀，否则应用按扩展名判定不会走 AVIF 解码器。
 - 签名配置不再入库：`ohos/build-profile.json5` 的 `signingConfigs` 必须为空数组，
   提交前跑 `dart tool/check_no_secrets.dart`（`just check-secrets`）。
 - git 依赖全部锁定到 commit SHA：`dart tool/check_ohos_pubspec.dart`
