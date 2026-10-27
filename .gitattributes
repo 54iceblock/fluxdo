@@ -1,0 +1,69 @@
+# =============================================================================
+# 换行符与二进制归一化
+#
+# 背景：本仓库长期在 Windows 上开发（core.autocrlf=true），却一直没有
+# .gitattributes。结果 OHOS 移植提交里混入了 CRLF 归一化，使 lib/main.dart 等
+# 文件的 diff 从 ~500 行膨胀到 ~3900 行（纯换行符噪声），严重妨碍 review 与
+# 日后合并上游。此文件把规则固定下来：仓库内文本一律 LF。
+#
+# 生效方式（一次性）：git add --renormalize .
+# =============================================================================
+
+# 默认：自动识别文本/二进制，文本在仓库内统一存 LF
+* text=auto eol=lf
+
+# ---- Windows 原生脚本与工程文件必须保持 CRLF ----
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.sln text eol=crlf
+*.vcxproj text eol=crlf
+*.vcxproj.filters text eol=crlf
+*.props text eol=crlf
+*.rc text eol=crlf
+
+# ---- 明确标记为二进制：禁止 git 做换行转换或文本 diff ----
+*.so binary
+*.dylib binary
+*.dll binary
+*.a binary
+*.lib binary
+*.o binary
+*.exe binary
+*.hap binary
+*.app binary
+*.jar binary
+*.p12 binary
+*.p7b binary
+*.cer binary
+*.jks binary
+*.keystore binary
+*.pem binary
+*.mobileprovision binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.bmp binary
+*.avif binary
+*.heic binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.7z binary
+*.mp3 binary
+*.m4a binary
+*.wav binary
+*.mp4 binary
+*.mov binary
+*.webm binary
+*.pdf binary
+*.rawheap binary
+*.heapsnapshot binary
