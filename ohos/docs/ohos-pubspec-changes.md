@@ -82,8 +82,8 @@ flutter pub get          # 首次会 clone 12 个 git 仓库到 PUB_CACHE，耗�
 | audio_session_harmonyos | 0.0.1 | pub.dev（Wayaer） | audio_session 0.2.4 | just_audio 传递依赖，显式声明锁版本 |
 | wakelock_plus_harmonyos | 0.0.1 | pub.dev（Wayaer） | wakelock_plus 1.3.3 | 播放防熄屏 |
 | package_info_plus_harmonyos | 0.0.1 | pub.dev（Wayaer） | package_info_plus 8.3.1 | 与项目锁定 8.x 兼容（PI 3.2.1） |
-| flutter_secure_storage_ohos | 1.0.0 | `github.com/ClosedHarmony/flutter_secure_storage_ohos` ref `main` | flutter_secure_storage 10.3.4 | 原生-only，通道名与官方一致；注：pub.dev 上同名 1.0.0 要求 Dart <3.0，不可用 |
-| record_ohos | 1.0.0 | `github.com/ClosedHarmony/record_ohos` ref `main` | record 7.1.1 | 原生-only；注：pub.dev 同名包只配 record PI 1.x，不可用 |
+| flutter_secure_storage_ohos | 1.0.0 | `github.com/ClosedHarmony/flutter_secure_storage_ohos` ref `main` → 锁定 `545fb02` | flutter_secure_storage 10.3.4 | 原生-only，通道名与官方一致；注：pub.dev 上同名 1.0.0 要求 Dart <3.0，不可用 |
+| record_ohos | 1.0.0 | `github.com/ClosedHarmony/record_ohos` ref `main` → 锁定 `851a667` | record 7.1.1 | 原生-only；注：pub.dev 同名包只配 record PI 1.x，不可用 |
 | saver_gallery | ^5.1.0 | pub.dev | 替代 gal 2.3.3 | OHOS 用 SaveButton/授权弹窗，**无需媒体库权限**；lib 侧由 task-5 切换 |
 
 其他端影响：除 `saver_gallery`（android/ios/ohos 三平台，与 gal 并存不冲突）外，其余包只声明 ohos，
@@ -99,19 +99,22 @@ Android/iOS/Windows/macOS/Linux 构建不会注册它们，`flutter pub get` 只
 全部来自 `gitcode.com/CPF-Flutter` 组织；均用 `git ls-remote` + raw pubspec 逐条核对过存在性与版本。
 TAG 规则 `<上游版本>-ohos-<x.y.z>`，分支名如 `br_v7.1.4_ohos`。
 
+> **2026-10 起全部锁定到 40 位 commit SHA**（下表「→」后为短 SHA），分支/TAG 仅作来源记录。
+> 校验：`dart tool/check_ohos_pubspec.dart`；非 OHOS 平台回归：`--portable`。
+
 | 包 | 上游版本 → fork 版本 | ref | 其他端影响 / 备注 |
 |---|---|---|---|
-| device_info_plus | 12.3.0 → 12.3.0 | `br_device_info_plus-v12.3.0_ohos` | 零版本差；替代原 `device_info_plus: 12.3.0` override |
-| connectivity_plus | 7.0.0 → 7.0.0 | `br_connectivity_plus-v7.0.0_ohos` | 零版本差 |
-| open_filex | 4.7.0 → 4.7.0 | TAG `4.7.0-ohos-1.0.0` | 零版本差 |
-| mobile_scanner | 7.4.2 → **7.1.4** | `br_v7.1.4_ohos` | 降级，`qr_login_scan_page` 需回归 |
-| volume_controller | 3.7.0 → **3.6.0** | `br_v3.6.0_ohos_dev` | 满足 `^3.6.0` |
-| app_links | 7.2.1 → **7.0.0** | TAG `7.0.0-ohos-1.0.1`，path `app_links` | 没用 7.2.2 分支：其 pubspec 带 `resolution: workspace`，git 依赖下有解析风险 |
-| flutter_local_notifications | 21.0.0 → **22.0.1** | `br_3.41_dev`，path `flutter_local_notifications` | 升大版本，21→22 API 需 task-5 适配 |
-| sqflite（传递依赖） | 2.4.4 → **2.4.2+1** | `br_3.41_dev`，path `sqflite` | fork 内 `sqflite_ohos` 是 path 依赖，随 checkout 解析 |
-| flutter_inappwebview | 6.2.0-beta.3 → **6.1.5** | `br_v6.1.5_ohos`，path `flutter_inappwebview` | ⚠️ 最高风险，24 处业务引用 |
+| device_info_plus | 12.3.0 → 12.3.0 | `br_device_info_plus-v12.3.0_ohos` → `8b5ba6a` | 零版本差；替代原 `device_info_plus: 12.3.0` override |
+| connectivity_plus | 7.0.0 → 7.0.0 | `br_connectivity_plus-v7.0.0_ohos` → `9514235` | 零版本差 |
+| open_filex | 4.7.0 → 4.7.0 | TAG `4.7.0-ohos-1.0.0` → `850a9ab` | 零版本差 |
+| mobile_scanner | 7.4.2 → **7.1.4** | `br_v7.1.4_ohos` → `f5a4ff5` | 降级，`qr_login_scan_page` 需回归 |
+| volume_controller | 3.7.0 → **3.6.0** | `br_v3.6.0_ohos_dev` → `3cf0457` | 满足 `^3.6.0` |
+| app_links | 7.2.1 → **7.0.0** | TAG `7.0.0-ohos-1.0.1` → `109fac2`，path `app_links` | 没用 7.2.2 分支：其 pubspec 带 `resolution: workspace`，git 依赖下有解析风险 |
+| flutter_local_notifications | 21.0.0 → **22.0.1** | vendored `packages/flutter_local_notifications`（源 `br_3.41_dev` @ `714178b`，删 PUBLISH_AGENT_REMINDER） | 升大版本，21→22 API 需 task-5 适配 |
+| sqflite（传递依赖） | 2.4.4 → **2.4.2+1** | `br_3.41_dev` → `9627805`，path `sqflite` | fork 内 `sqflite_ohos` 是 path 依赖，随 checkout 解析 |
+| flutter_inappwebview | 6.2.0-beta.3 → **6.1.5** | `br_v6.1.5_ohos` → `389cf40`，path `flutter_inappwebview` | ⚠️ 最高风险，24 处业务引用 |
 | flutter_inappwebview_platform_interface | 1.4.0-beta.3 → **1.3.0+1** | 同上 ref，path `flutter_inappwebview_platform_interface` | 必须与 app-facing 同来源，否则 pub source 冲突 |
-| ota_update | 7.1.0 → **7.0.2** | `br_3.35` | 7.0.2 缺 `OtaStatus.INSTALLATION_DONE/ERROR`，见 §6 |
+| ota_update | 7.1.0 → **7.0.2** | `br_3.35` → `feff13b` | 7.0.2 缺 `OtaStatus.INSTALLATION_DONE/ERROR`，见 §6 |
 
 **构建期修正（2026-10-21 13:50，Lead 执行）**：
 
@@ -129,27 +132,27 @@ TAG 规则 `<上游版本>-ohos-<x.y.z>`，分支名如 `br_v7.1.4_ohos`。
 ```yaml
 dependency_overrides:
   device_info_plus:
-    git: { url: https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git, ref: br_device_info_plus-v12.3.0_ohos, path: packages/device_info_plus/device_info_plus }
+    git: { url: https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git, ref: 8b5ba6a9ef3a28558177e9193319a0700f9cc640, path: packages/device_info_plus/device_info_plus }
   connectivity_plus:
-    git: { url: https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git, ref: br_connectivity_plus-v7.0.0_ohos, path: packages/connectivity_plus/connectivity_plus }
+    git: { url: https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git, ref: 9514235dda402b432b860a31c69d4dc5153891f5, path: packages/connectivity_plus/connectivity_plus }
   open_filex:
-    git: { url: https://gitcode.com/CPF-Flutter/fluttertpc_open_filex.git, ref: 4.7.0-ohos-1.0.0 }
+    git: { url: https://gitcode.com/CPF-Flutter/fluttertpc_open_filex.git, ref: 850a9abd0220316dc2bb45924315cb2304ff4ab6 }
   mobile_scanner:
-    git: { url: https://gitcode.com/CPF-Flutter/fluttertpc_mobile_scanner.git, ref: br_v7.1.4_ohos }
+    git: { url: https://gitcode.com/CPF-Flutter/fluttertpc_mobile_scanner.git, ref: f5a4ff52f003e1645db1d4de743a2db0313665a8 }
   volume_controller:
-    git: { url: https://gitcode.com/CPF-Flutter/fluttertpc_volume_controller.git, ref: br_v3.6.0_ohos_dev }
+    git: { url: https://gitcode.com/CPF-Flutter/fluttertpc_volume_controller.git, ref: 3cf0457a6e9dd21f59a62bd18407e94e68a1e081 }
   app_links:
-    git: { url: https://gitcode.com/CPF-Flutter/fluttertpc_app_links.git, ref: 7.0.0-ohos-1.0.1, path: app_links }
+    git: { url: https://gitcode.com/CPF-Flutter/fluttertpc_app_links.git, ref: 109fac28a22c3f5ab403049adec46412dacf1acd, path: app_links }
   flutter_local_notifications:
-    git: { url: https://gitcode.com/CPF-Flutter/fluttertpc_flutter_local_notifications.git, ref: br_3.41_dev, path: flutter_local_notifications }
+    path: packages/flutter_local_notifications   # vendored（源 br_3.41_dev @ 714178b）
   sqflite:
-    git: { url: https://gitcode.com/CPF-Flutter/flutter_sqflite.git, ref: br_3.41_dev, path: sqflite }
+    git: { url: https://gitcode.com/CPF-Flutter/flutter_sqflite.git, ref: 9627805b994b89d8abc273a450bfb176142c5860, path: sqflite }
   flutter_inappwebview:
-    git: { url: https://gitcode.com/CPF-Flutter/flutter_inappwebview.git, ref: br_v6.1.5_ohos, path: flutter_inappwebview }
+    git: { url: https://gitcode.com/CPF-Flutter/flutter_inappwebview.git, ref: 389cf40dbb647f1df7272de5ea6b3401efe27a75, path: flutter_inappwebview }
   flutter_inappwebview_platform_interface:
-    git: { url: https://gitcode.com/CPF-Flutter/flutter_inappwebview.git, ref: br_v6.1.5_ohos, path: flutter_inappwebview_platform_interface }
+    git: { url: https://gitcode.com/CPF-Flutter/flutter_inappwebview.git, ref: 389cf40dbb647f1df7272de5ea6b3401efe27a75, path: flutter_inappwebview_platform_interface }
   ota_update:
-    git: { url: https://gitcode.com/CPF-Flutter/fluttertpc_ota_update.git, ref: br_3.35 }
+    git: { url: https://gitcode.com/CPF-Flutter/fluttertpc_ota_update.git, ref: feff13ba2bb3c1ec31c15ed21e2e75fe2e8a9c28 }
   # 构建期追加（vendored 本地修复，见 §9）：
   flutter_math_fork: { path: packages/flutter_math_fork }
   # 注意：flutter_inappwebview_linux / _windows 的 path override 已移除（与 6.1.5 PI 冲突）。

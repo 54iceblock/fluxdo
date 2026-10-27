@@ -1,0 +1,29 @@
+name: Repo Guards
+
+# 轻量守卫：每次 push / PR 都跑（build.yaml 只在打 tag 时触发，拦不住日常误提交）。
+# 两个脚本都是零依赖 Dart，只需要 Dart SDK，不跑 pub get、不构建。
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+
+      # ohos/build-profile.json5 曾被提交过 DevEco 写入的本机签名口令与证书路径
+      - name: Check for committed signing material
+        run: dart tool/check_no_secrets.dart
+
+      # OHOS git 依赖必须锁定 40 位 commit SHA，且与 pubspec.lock 一致
+      - name: Check OHOS dependency pinning
+        run: dart tool/check_ohos_pubspec.dart

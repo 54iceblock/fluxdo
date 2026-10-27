@@ -13,8 +13,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// 检查根目录（本文件位于 `tool/` 下）。
-final Directory _root = File.fromUri(Platform.script).parent.parent;
+/// 检查根目录：默认是本文件所在仓库（`tool/` 的上一级），测试可用 `--root <dir>` 覆盖。
+Directory _root = File.fromUri(Platform.script).parent.parent;
 
 /// 命中即失败的字符串特征（大小写敏感，避免误报）。
 const List<String> _textNeedles = <String>[
@@ -60,8 +60,15 @@ const String _ohosBuildProfile = 'ohos/build-profile.json5';
 bool _verbose = false;
 
 Future<void> main(List<String> args) async {
+  // 统一 UTF-8 输出：Windows 控制台默认代码页会把中文/路径变成乱码
+  stdout.encoding = utf8;
+  stderr.encoding = utf8;
   _verbose = args.contains('--verbose');
   final bool fix = args.contains('--fix');
+  final int rootIndex = args.indexOf('--root');
+  if (rootIndex >= 0 && rootIndex + 1 < args.length) {
+    _root = Directory(args[rootIndex + 1]).absolute;
+  }
 
   final List<String> problems = <String>[];
 

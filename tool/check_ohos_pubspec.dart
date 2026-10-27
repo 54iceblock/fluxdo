@@ -18,8 +18,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// 仓库根目录（本文件位于 `tool/` 下）。
-final Directory _root = File.fromUri(Platform.script).parent.parent;
+/// 仓库根目录：默认是本文件所在仓库（`tool/` 的上一级），测试可用 `--root <dir>` 覆盖。
+Directory _root = File.fromUri(Platform.script).parent.parent;
 
 /// 仅为了 OHOS 才存在的 override：非 OHOS 平台应使用上游版本。
 /// 新增 OHOS fork 时必须登记到这里，否则 --portable 会漏掉。
@@ -40,6 +40,13 @@ const Set<String> _ohosOnlyOverrides = <String>{
 final RegExp _sha40 = RegExp(r'^[0-9a-f]{40}$');
 
 Future<void> main(List<String> args) async {
+  // 统一 UTF-8 输出：Windows 控制台默认代码页会把中文/路径变成乱码
+  stdout.encoding = utf8;
+  stderr.encoding = utf8;
+  final int rootIndex = args.indexOf('--root');
+  if (rootIndex >= 0 && rootIndex + 1 < args.length) {
+    _root = Directory(args[rootIndex + 1]).absolute;
+  }
   final int portableIndex = args.indexOf('--portable');
   if (portableIndex >= 0) {
     final String out = portableIndex + 1 < args.length &&
@@ -218,18 +225,27 @@ Future<void> _writePortable(String outPath) async {
       out.add(line);
       continue;
     }
-    if (indent == 2 && trimmed.endsWith(':')) {
-      final String name = trimmed.substring(0, trimmed.length - 1);
-      dropping = _ohosOnlyOverrides.contains(name);
+    // 任何 2 空格缩进的键都会结束上一个块：既有 `name:`（多行块），也有
+    // `name: 1.2.3` 这种单行 override —— 只认前者会把紧跟在被删块后面的
+    // 单行 override（如 flutter_rust_bridge）一起吞掉（单测发现的 bug）。
+    final RegExpMatch? key =
+        indent == 2 ? RegExp(r'^([A-Za-z0-9_]+):').firstMatch(trimmed) : null;
+    if (key != null) {
+      dropping = _ohosOnlyOverrides.contains(key.group(1));
       if (dropping) continue;
       out.add(line);
       continue;
     }
-    if (dropping) continue;
+    // 被删块内部的更深缩进行一并删掉；注释/空行保留（只会多几行说明，不影响解析）
+    if (dropping && indent > 2) continue;
+    dropping = dropping && indent > 2;
     out.add(line);
   }
 
-  final File target = File(outPath);
+  // 相对路径按仓库根解析（不受当前工作目录影响）
+  final File target = File(outPath).isAbsolute
+      ? File(outPath)
+      : File('${_root.path}/$outPath');
   target.parent.createSync(recursive: true);
   target.writeAsStringSync(
     '# 由 `dart run tool/check_ohos_pubspec.dart --portable` 生成：\n'

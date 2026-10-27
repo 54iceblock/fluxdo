@@ -37,20 +37,21 @@ robocopy C:\Users\iceblock\fluxdo\docs C:\Users\iceblock\fluxdo\repo\ohos\docs *
   或标注为「已移除」，避免交付说明与代码不一致。
 - 剪贴板「读富文本」依赖 system_basic 级 `READ_PASTEBOARD`，普通证书拿不到，
   相关实现与 Promise 一并移除；OHOS 富文本粘贴按设计降级纯文本。
-- `ohos.permission.PUBLISH_AGENT_REMINDER` 已从应用侧 `module.json5` 删除（只用即时
-  notification，不用 reminderAgent 定时提醒）。⚠️ 但 2026-10 重建 HAP 解包验证发现
-  最终包里**仍有**该权限：它来自 `flutter_local_notifications` 的 HAR 自带 module.json5，
-  由 hvigor 合并进产物，应用侧删声明无效；要彻底去掉需 vendored 该插件删其条目（未做，
-  normal 级权限、安装即授予，风险低）。上架说明按「依赖库自带、本版不使用定时提醒」写。
-- AVIF 解码已在 2026-10 重修：C 侧实现 `max_dim` 降采样、解码上限收到 8192，
-  Dart 侧改为常驻后台 isolate。**改动了 `tools/ohos-avif-decode.c` 后必须重新
-  编译 `libohos_avif.so`**（`wsl bash tools/build-avif-ohos.sh`），否则 .so 仍是
-  旧行为（不降采样）。
+- `ohos.permission.PUBLISH_AGENT_REMINDER` 已从最终 HAP 移除（解包 module.json 实测：
+  只剩 INTERNET / GET_NETWORK_INFO / CAMERA / MICROPHONE）。注意 hvigor 会把依赖 HAR
+  的权限合并进产物，只删应用侧声明无效；因此 `flutter_local_notifications` 已 vendored
+  到 `packages/flutter_local_notifications` 并删掉其 HAR 里的条目（见该目录 `VENDOR.md`）。
+  `GET_NETWORK_INFO` **要保留**：connectivity_plus 在用，且其 HAR 也自带声明。
+- AVIF 解码已在 2026-10 重修：C 侧实现 `max_dim` 盒式降采样、解码上限收到 8192，
+  Dart 侧改为常驻后台 isolate；`libohos_avif.so`（x86_64 / arm64）已用新源码重编入库。
+  改动 `tools/ohos-avif-decode.c` 后要重编：`wsl bash tools/build-avif-ohos.sh`
+  （WSL 本地 NDK 不在时脚本会自动改用 DevEco SDK 的 `native/` 目录）。
 - 签名配置不再入库：`ohos/build-profile.json5` 的 `signingConfigs` 必须为空数组，
-  提交前跑 `dart run tool/check_no_secrets.dart`（`just check-secrets`）。
-- git 依赖全部锁定到 commit SHA：`dart run tool/check_ohos_pubspec.dart`
+  提交前跑 `dart tool/check_no_secrets.dart`（`just check-secrets`）。
+- git 依赖全部锁定到 commit SHA：`dart tool/check_ohos_pubspec.dart`
   （`just check-pubspec`），跨平台回归用 `--portable` 生成去掉 OHOS override 的
-  pubspec。
+  pubspec。两个守卫在每次 push/PR 由 `.github/workflows/repo-guards.yaml` 运行，
+  发版构建（build.yaml）里也会再跑一遍。
 
 ## 遗留风险：git 历史里的签名材料
 

@@ -98,7 +98,7 @@ hdc -t <序列号> file recv /data/local/tmp/t0.jpeg ./t0.jpeg
 | 动图解码 | `{"type":"image","event":"native_animated_codec","result":"ok","version":"0.3.2"}` |
 | AVIF 解码 | `{"type":"image","event":"avif_probe","result":"native-ok","detail":"w=… h=… rgba=…"}` |
 | cook JS（QuickJS） | `{"type":"cook","event":"cook_bundle_eval","result":"ok"}` + `cook_global_probe globalType=object` |
-| 后台保活（debug 版才有） | `{"type":"background","event":"ohos_continuous_task_probe","state":"started"}` |
+| ~~后台保活~~（已移除，`e63e3be`/`c9578bb`） | —— 不再有 `ohos_continuous_task_probe` 日志 |
 
 ---
 
@@ -159,7 +159,7 @@ hdc -t <序列号> file recv /data/local/tmp/t0.jpeg ./t0.jpeg
 |---|---|---|---|---|
 | E1 | 通知授权 | 首次进「我的」或收到通知时 | 系统通知开关可正常开启（**需手动在设置里打开本应用通知**） | 🔍 |
 | E2 | 本地通知展示 | 登录后触发一条通知（如被回复） | 通知栏可见，点击进入对应话题 | 🔍 |
-| E3 | 后台保活 | 登录 → 切后台 5 分钟 | 期间轮询继续（日志有请求），10 分钟内无被杀 | 🔍 |
+| E3 | ~~后台保活~~（已移除） | 登录 → 切后台 5 分钟 → 回前台 | 回前台后自动刷新通知与频道，无崩溃；**不再要求**后台轮询持续 | 🔍 |
 | E4 | 回前台恢复 | 从后台切回 | 立即刷新列表、无白屏 | 🔍 |
 
 ### 3.6 网络与设置
@@ -220,7 +220,7 @@ hdc -t $d shell bm dump -n com.fluxdo.app | findstr /i "version allowEnableNotif
 ```
 
 > JSONL 中重点关注字段：`"level":"warning"/"error"`、`event`（`rhttp_init` / `native_animated_codec` /
-> `avif_probe` / `cook_bundle_eval` / `ohos_continuous_task*` / `ohos_clipboard_probe` / `cf_challenge`）。
+> `avif_probe` / `cook_bundle_eval` / `ohos_clipboard_probe` / `cf_challenge`；**以上探针仅 debug 包输出**，release 包不再跑）。
 
 ---
 
@@ -231,7 +231,7 @@ hdc -t $d shell bm dump -n com.fluxdo.app | findstr /i "version allowEnableNotif
 | 应用内更新安装 | HarmonyOS 不允许第三方应用静默安装 HAP | 检查更新后打开浏览器发布页 |
 | 剪贴板「读」富文本 | `ohos.permission.READ_PASTEBOARD` 为 system_basic 级，普通证书无法授予 | 自动回退纯文本粘贴（写图片正常） |
 | 通知需手动开启 | 系统侧 `allowEnableNotification` 默认关闭 | 引导用户到设置开启 |
-| 后台保活有时长上限 | 数据同步类长时任务单次约 10 分钟 | 每次切后台重新申请，超时后轮询暂停 |
+| 无后台保活 | 长时任务已移除，切后台由系统正常挂起 | 回前台时恢复频道并刷新通知 |
 
 ---
 

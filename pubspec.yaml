@@ -298,12 +298,10 @@ dependency_overrides:
       # 原 ref: TAG 7.0.0-ohos-1.0.1（2026-10-26 锁定）
       ref: 109fac28a22c3f5ab403049adec46412dacf1acd
       path: app_links
+  # vendored（源 CPF br_3.41_dev @ 714178b）：唯一改动是删掉其 HAR 里的
+  # PUBLISH_AGENT_REMINDER（HAR 权限会合并进最终 HAP）。见 packages/flutter_local_notifications/VENDOR.md。
   flutter_local_notifications:
-    git:
-      url: https://gitcode.com/CPF-Flutter/fluttertpc_flutter_local_notifications.git
-      # 原 ref: br_3.41_dev（2026-10-26 锁定）
-      ref: 714178b60a5d39268c6c74ec1082be559d1d121a
-      path: flutter_local_notifications
+    path: packages/flutter_local_notifications
   # sqflite 是 flutter_cache_manager 的传递依赖；fork 内 sqflite_ohos 是 path 依赖，
   # 会随 git checkout 一起解析（不额外覆盖 sqflite_ohos）。
   sqflite:

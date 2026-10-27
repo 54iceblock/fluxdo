@@ -73,16 +73,6 @@ jobs:
         with:
           submodules: recursive
 
-      # 守卫：ohos/build-profile.json5 曾被提交过本机签名密码/证书路径。
-      # 构建前先卡一遍，避免再次泄漏（脚本见 tool/check_no_secrets.dart）。
-      - name: Check for committed signing material
-        run: dart run tool/check_no_secrets.dart
-
-      # 守卫：OHOS 的 git 依赖必须锁定 commit SHA（写分支名会让依赖不可复现，
-      # 且 override 对非 OHOS 平台同样生效）。见 tool/check_ohos_pubspec.dart。
-      - name: Check OHOS dependency pinning
-        run: dart run tool/check_ohos_pubspec.dart
-
       - name: Setup Java
         if: startsWith(matrix.platform, 'android')
         uses: actions/setup-java@v4
@@ -95,6 +85,14 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+
+      # 守卫必须放在 Setup Flutter 之后：runner 默认没有 dart。
+      # 直接 `dart <file>`（不是 `dart run`）：两个脚本零依赖，免去 pub get 与 build hooks。
+      - name: Check for committed signing material
+        run: dart tool/check_no_secrets.dart
+
+      - name: Check OHOS dependency pinning
+        run: dart tool/check_ohos_pubspec.dart
 
       - name: Setup Rust
         if: startsWith(matrix.platform, 'android') || matrix.platform == 'macos' || matrix.platform == 'ios' || matrix.platform == 'windows'

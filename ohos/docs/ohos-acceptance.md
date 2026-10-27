@@ -89,7 +89,7 @@
 | DOH 代理 / rhttp | 禁用，dio 直连 | P1/P2 Rust 交叉编译（docs/ohos-native-strategy.md） |
 | cook JS 1:1 预览 | Dart 近似预览 | P2 换 flutter_qjs |
 | AVIF / 动图 | 引擎内建解码 | P2 原生库移植 |
-| 后台保活/后台通知 | 仅前台 | P2 长时任务 |
+| 后台保活/后台通知 | 仅前台 | 已决定不做（长时任务会常驻通知栏条目，已移除） |
 | 相机扫码 | 相册 + zxing2 兜底 | P2 mobile_scanner ohos |
 | 应用内更新 | 引导外部（HAP 不能静默装） | — |
 | 富文本/图片剪贴板 | 纯文本兜底 | P2 |
@@ -109,7 +109,7 @@
 | A38 | **原生动图解码**（Rust native_animated_image → libnative_animated_image_codec.so） | 日志 `{"event":"native_animated_codec","result":"ok","version":"0.3.2"}` | ✅ |
 | A39 | **AVIF 解码**（自编 libavif+dav1d → libohos_avif.so）：真实 1204×800 AVIF 解出 RGBA | 日志 `{"event":"avif_probe","result":"native-ok","detail":"w=1204 h=800 rgba=3852800"}` | ✅ |
 | A40 | **cook JS 渲染**（自编 QuickJS 0.17.0 → libohos_quickjs.so）：cook bundle eval 成功且全局可见 | 日志 `cook_bundle_eval ok (567467B/84ms)`、`cook_global_probe globalType=object` | ✅ |
-| A41 | **后台保活**（backgroundTaskManager 长时任务）：切后台可申请、回前台释放 | 日志 `{"event":"ohos_continuous_task_probe","state":"started"/"stopped"}` | ✅ |
+| A41 | ~~后台保活~~（backgroundTaskManager 长时任务） | 已在 `e63e3be`/`c9578bb` 移除，本项作废 | ➖ |
 | A42 | **富文本剪贴板·写图片**（ArkTS pasteboard）：PNG→PixelMap→系统剪贴板 | 日志 `{"event":"ohos_clipboard_probe","result":"write-ok"}` | ✅ |
 | A43 | **release 包（含 5 个原生库）**：118.4 MB，安装启动、列表/详情/首页图片均正常 | `.cache/shot-release4.jpeg` 等 | ✅ |
 | A44 | **静态分析**：`dart analyze lib` → 0 error / 0 warning（129 条既有 info） | 本地执行 | ✅ |
