@@ -71,6 +71,17 @@
   },
   "preferences_blockedUsernamesHint": "Enter a username, then press Enter",
   "preferences_blockedUsernamesHelper": "Do not include @. Usernames are matched exactly, case-insensitively. This does not use Discourse ignore.",
+  "preferences_blockedTags": "Locally blocked tags",
+  "preferences_blockedTagsDesc": "Hide topics with these tags from topic lists. The list stays only on this device and is never synced to Linux.do",
+  "preferences_blockedTagsCount": "{count} tags blocked",
+  "@preferences_blockedTagsCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "preferences_blockedTagsHint": "Enter a tag name, then press Enter",
+  "preferences_blockedTagsHelper": "Do not include #. Tag names are matched exactly, case-insensitively. Not applied on the tag's own page.",
+  "preferences_blockedTagsPick": "Pick from tags",
   "preferences_showFilterHint": "Show filter hint",
   "preferences_showFilterHintDesc": "Show how many topics are hidden by keywords or your block list",
   "preferences_autoPanguSpacing": "Auto CJK spacing",

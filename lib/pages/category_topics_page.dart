@@ -7,6 +7,7 @@ import '../models/category.dart';
 import '../providers/discourse_providers.dart';
 import '../providers/selected_topic_provider.dart';
 import '../providers/preferences_provider.dart';
+import '../utils/blocked_tag_filter.dart';
 import '../utils/load_more_coordinator.dart';
 import '../utils/pagination_helper.dart';
 import '../utils/topic_keyword_filter.dart';
@@ -66,7 +67,12 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
   List<String> _selectedTags = [];
   List<String> _lastAutoLoadKeywords = const [];
   Set<String> _lastAutoLoadBlockedUsernames = const <String>{};
+  Set<String> _lastAutoLoadBlockedTags = const <String>{};
   bool? _lastAutoLoadWholeWord;
+
+  /// 本页豁免的屏蔽标签：用户显式选中这些标签做筛选，说明此刻想看它们，
+  /// 不应让结果被标签屏蔽整片清空。
+  Set<String> get _exemptTags => BlockedTagFilter.normalizedTags(_selectedTags);
 
   TopicListUpdateQuery get _topicUpdatesQuery => TopicListUpdateQuery(
     filter: _currentFilter,
@@ -163,15 +169,17 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
     final keywords = prefs.normalizedFilterKeywords;
     final wholeWord = prefs.topicFilterWholeWord;
     final blockedUsernames = prefs.normalizedBlockedUsernames;
+    final blockedTags = prefs.normalizedBlockedTags;
 
     int visibleItemCount() {
-      final (visible, _, _) = TopicKeywordFilter.apply(
+      return TopicKeywordFilter.apply(
         _topics,
         normalizedKeywords: keywords,
         wholeWord: wholeWord,
         blockedUsernames: blockedUsernames,
-      );
-      return visible.length;
+        blockedTags: blockedTags,
+        exemptTags: _exemptTags,
+      ).visible.length;
     }
 
     await _loadMoreCoordinator.loadTopicPage(
@@ -180,7 +188,11 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
       isActive: () => mounted,
       itemCount: () => _topics.length,
       visibleItemCount: visibleItemCount,
-      hasKeywordFilter: keywords.isNotEmpty || blockedUsernames.isNotEmpty,
+      hasKeywordFilter: TopicKeywordFilter.hasAnyFilter(
+        normalizedKeywords: keywords,
+        blockedUsernames: blockedUsernames,
+        blockedTags: blockedTags,
+      ),
     );
   }
 
@@ -424,15 +436,18 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
     List<String> keywords,
     bool wholeWord,
     Set<String> blockedUsernames,
+    Set<String> blockedTags,
   ) {
     if (listEquals(_lastAutoLoadKeywords, keywords) &&
         _lastAutoLoadWholeWord == wholeWord &&
-        setEquals(_lastAutoLoadBlockedUsernames, blockedUsernames)) {
+        setEquals(_lastAutoLoadBlockedUsernames, blockedUsernames) &&
+        setEquals(_lastAutoLoadBlockedTags, blockedTags)) {
       return;
     }
     _lastAutoLoadKeywords = List.unmodifiable(keywords);
     _lastAutoLoadWholeWord = wholeWord;
     _lastAutoLoadBlockedUsernames = Set.unmodifiable(blockedUsernames);
+    _lastAutoLoadBlockedTags = Set.unmodifiable(blockedTags);
     _loadMoreCoordinator.resetCooldown();
   }
 
@@ -646,18 +661,25 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
     final blockedUsernames = ref.watch(
       preferencesProvider.select((p) => p.normalizedBlockedUsernames),
     );
+    final blockedTags = ref.watch(
+      preferencesProvider.select((p) => p.normalizedBlockedTags),
+    );
     final showFilterHint = ref.watch(
       preferencesProvider.select((p) => p.showFilterHint),
     );
     // 话题卡自定义样式:改设置触发 rebuild(自绘排版直读全局快照)
     ref.watch(preferencesProvider.select((p) => p.topicCardStyle));
-    _syncAutoLoadFilter(keywords, wholeWord, blockedUsernames);
-    final (visible, hidden, hiddenByBlocked) = TopicKeywordFilter.apply(
+    _syncAutoLoadFilter(keywords, wholeWord, blockedUsernames, blockedTags);
+    final filterResult = TopicKeywordFilter.apply(
       _topics,
       normalizedKeywords: keywords,
       wholeWord: wholeWord,
       blockedUsernames: blockedUsernames,
+      blockedTags: blockedTags,
+      exemptTags: _exemptTags,
     );
+    final visible = filterResult.visible;
+    final hidden = filterResult.hiddenCount;
     final hintOffset = (showFilterHint && hidden > 0) ? 1 : 0;
 
     return TopicCardPrewarmScope(
@@ -680,7 +702,8 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
           if (hintOffset > 0 && index == updateOffset) {
             return KeywordFilterHintBar(
               hiddenCount: hidden,
-              hiddenByBlocked: hiddenByBlocked,
+              hiddenByBlocked: filterResult.hiddenByBlocked,
+              hiddenByTag: filterResult.hiddenByTag,
             );
           }
           final topicIndex = index - hintOffset - updateOffset;

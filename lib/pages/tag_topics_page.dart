@@ -6,6 +6,7 @@ import '../models/topic.dart';
 import '../providers/discourse_providers.dart';
 import '../providers/selected_topic_provider.dart';
 import '../providers/preferences_provider.dart';
+import '../utils/blocked_tag_filter.dart';
 import '../utils/load_more_coordinator.dart';
 import '../utils/pagination_helper.dart';
 import '../utils/topic_keyword_filter.dart';
@@ -60,8 +61,15 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
   List<String> _lastAutoLoadKeywords = const [];
   Set<String> _lastAutoLoadBlockedUsernames = const <String>{};
   bool? _lastAutoLoadWholeWord;
+  Set<String> _lastAutoLoadBlockedTags = const <String>{};
 
   TopicListUpdateQuery get _topicUpdatesQuery => TopicListUpdateQuery(
+  /// 本页豁免的屏蔽标签：正在浏览某个标签自身，说明用户想看它，
+  /// 不能让它被本机屏蔽名单整片清空。
+  late final Set<String> _exemptTags = {
+    BlockedTagFilter.normalizeTag(widget.tagName),
+  };
+
     filter: _currentFilter,
     subset: _currentSubset,
     tags: [widget.tagName],
@@ -143,14 +151,16 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
     final wholeWord = prefs.topicFilterWholeWord;
     final blockedUsernames = prefs.normalizedBlockedUsernames;
 
+    final blockedTags = prefs.normalizedBlockedTags;
     int visibleItemCount() {
-      final (visible, _, _) = TopicKeywordFilter.apply(
+      return TopicKeywordFilter.apply(
         _topics,
         normalizedKeywords: keywords,
         wholeWord: wholeWord,
         blockedUsernames: blockedUsernames,
-      );
-      return visible.length;
+        blockedTags: blockedTags,
+        exemptTags: _exemptTags,
+      ).visible.length;
     }
 
     await _loadMoreCoordinator.loadTopicPage(
@@ -159,7 +169,11 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
       isActive: () => mounted,
       itemCount: () => _topics.length,
       visibleItemCount: visibleItemCount,
-      hasKeywordFilter: keywords.isNotEmpty || blockedUsernames.isNotEmpty,
+      hasKeywordFilter: TopicKeywordFilter.hasAnyFilter(
+        normalizedKeywords: keywords,
+        blockedUsernames: blockedUsernames,
+        blockedTags: blockedTags,
+      ),
     );
   }
 
@@ -339,15 +353,18 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
     bool wholeWord,
     Set<String> blockedUsernames,
   ) {
+    Set<String> blockedTags,
     if (listEquals(_lastAutoLoadKeywords, keywords) &&
         _lastAutoLoadWholeWord == wholeWord &&
-        setEquals(_lastAutoLoadBlockedUsernames, blockedUsernames)) {
+        setEquals(_lastAutoLoadBlockedUsernames, blockedUsernames) &&
+        setEquals(_lastAutoLoadBlockedTags, blockedTags)) {
       return;
     }
     _lastAutoLoadKeywords = List.unmodifiable(keywords);
     _lastAutoLoadWholeWord = wholeWord;
     _lastAutoLoadBlockedUsernames = Set.unmodifiable(blockedUsernames);
     _loadMoreCoordinator.resetCooldown();
+    _lastAutoLoadBlockedTags = Set.unmodifiable(blockedTags);
   }
 
   /// 本页专属平行视界栈(按 tagName family 隔离)。
@@ -470,8 +487,8 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
     );
     // 话题卡自定义样式:改设置触发 rebuild(自绘排版直读全局快照)
     ref.watch(preferencesProvider.select((p) => p.topicCardStyle));
-    _syncAutoLoadFilter(keywords, wholeWord, blockedUsernames);
-    final (visible, hidden, hiddenByBlocked) = TopicKeywordFilter.apply(
+    _syncAutoLoadFilter(keywords, wholeWord, blockedUsernames, blockedTags);
+    final filterResult = TopicKeywordFilter.apply(
       _topics,
       normalizedKeywords: keywords,
       wholeWord: wholeWord,
@@ -499,8 +516,12 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
           if (hintOffset > 0 && index == updateOffset) {
             return KeywordFilterHintBar(
               hiddenCount: hidden,
-              hiddenByBlocked: hiddenByBlocked,
+              hiddenByBlocked: filterResult.hiddenByBlocked,
+              hiddenByTag: filterResult.hiddenByTag,
             );
+    final blockedTags = ref.watch(
+      preferencesProvider.select((p) => p.normalizedBlockedTags),
+    );
           }
           final topicIndex = index - hintOffset - updateOffset;
           if (topicIndex >= visible.length) {
@@ -512,7 +533,11 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
                   children: [
                     Icon(Symbols.inbox_rounded, size: 48,
                       color: Theme.of(context).colorScheme.outline),
+      blockedTags: blockedTags,
+      exemptTags: _exemptTags,
                     const SizedBox(height: 12),
+    final visible = filterResult.visible;
+    final hidden = filterResult.hiddenCount;
                     Text(context.l10n.tagTopics_empty),
                   ],
                 )),

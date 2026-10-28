@@ -38,6 +38,7 @@ import '../widgets/common/paged_list_footer.dart';
 import '../navigation/nav_action_bus.dart';
 import '../providers/app_state_refresher.dart';
 import '../providers/preferences_provider.dart';
+import '../utils/blocked_tag_filter.dart';
 import '../utils/load_more_coordinator.dart';
 import '../utils/motion_springs.dart';
 import '../utils/topic_keyword_filter.dart';
@@ -2563,7 +2564,18 @@ class _TopicListState extends ConsumerState<_TopicList>
       TopicLoadMoreCoordinator();
   List<String> _lastAutoLoadKeywords = const [];
   Set<String> _lastAutoLoadBlockedUsernames = const <String>{};
+  Set<String> _lastAutoLoadBlockedTags = const <String>{};
   bool? _lastAutoLoadWholeWord;
+
+  /// 本 tab 豁免的屏蔽标签：用户显式选中这些标签做筛选，说明此刻想看
+  /// 它们，不应让结果被标签屏蔽整片清空。
+  Set<String> _exemptTagsFor(int? categoryId) => BlockedTagFilter.normalizedTags(
+    ref.read(tabTagsProvider(categoryId)),
+  );
+
+  Set<String> _watchedExemptTags() => BlockedTagFilter.normalizedTags(
+    ref.watch(tabTagsProvider(widget.categoryId)),
+  );
 
   @override
   bool get wantKeepAlive => true;
@@ -2711,6 +2723,8 @@ class _TopicListState extends ConsumerState<_TopicList>
     final keywords = prefs.normalizedFilterKeywords;
     final wholeWord = prefs.topicFilterWholeWord;
     final blockedUsernames = prefs.normalizedBlockedUsernames;
+    final blockedTags = prefs.normalizedBlockedTags;
+    final exemptTags = _exemptTagsFor(providerKey);
 
     int itemCount() {
       return ref.read(topicListProvider(providerKey)).value?.length ?? 0;
@@ -2719,13 +2733,14 @@ class _TopicListState extends ConsumerState<_TopicList>
     int visibleItemCount() {
       final raw =
           ref.read(topicListProvider(providerKey)).value ?? const <Topic>[];
-      final (visible, _, _) = TopicKeywordFilter.apply(
+      return TopicKeywordFilter.apply(
         raw,
         normalizedKeywords: keywords,
         wholeWord: wholeWord,
         blockedUsernames: blockedUsernames,
-      );
-      return visible.length;
+        blockedTags: blockedTags,
+        exemptTags: exemptTags,
+      ).visible.length;
     }
 
     await _loadMoreCoordinator.loadTopicPage(
@@ -2734,7 +2749,11 @@ class _TopicListState extends ConsumerState<_TopicList>
       isActive: () => mounted,
       itemCount: itemCount,
       visibleItemCount: visibleItemCount,
-      hasKeywordFilter: keywords.isNotEmpty || blockedUsernames.isNotEmpty,
+      hasKeywordFilter: TopicKeywordFilter.hasAnyFilter(
+        normalizedKeywords: keywords,
+        blockedUsernames: blockedUsernames,
+        blockedTags: blockedTags,
+      ),
     );
   }
 
@@ -2742,15 +2761,18 @@ class _TopicListState extends ConsumerState<_TopicList>
     List<String> keywords,
     bool wholeWord,
     Set<String> blockedUsernames,
+    Set<String> blockedTags,
   ) {
     if (listEquals(_lastAutoLoadKeywords, keywords) &&
         _lastAutoLoadWholeWord == wholeWord &&
-        setEquals(_lastAutoLoadBlockedUsernames, blockedUsernames)) {
+        setEquals(_lastAutoLoadBlockedUsernames, blockedUsernames) &&
+        setEquals(_lastAutoLoadBlockedTags, blockedTags)) {
       return;
     }
     _lastAutoLoadKeywords = List.unmodifiable(keywords);
     _lastAutoLoadWholeWord = wholeWord;
     _lastAutoLoadBlockedUsernames = Set.unmodifiable(blockedUsernames);
+    _lastAutoLoadBlockedTags = Set.unmodifiable(blockedTags);
     _loadMoreCoordinator.resetCooldown();
   }
 
@@ -2855,22 +2877,30 @@ class _TopicListState extends ConsumerState<_TopicList>
     final blockedUsernames = ref.watch(
       preferencesProvider.select((p) => p.normalizedBlockedUsernames),
     );
+    final blockedTags = ref.watch(
+      preferencesProvider.select((p) => p.normalizedBlockedTags),
+    );
+    final exemptTags = _watchedExemptTags();
     final showFilterHint = ref.watch(
       preferencesProvider.select((p) => p.showFilterHint),
     );
-    _syncAutoLoadFilter(keywords, wholeWord, blockedUsernames);
+    _syncAutoLoadFilter(keywords, wholeWord, blockedUsernames, blockedTags);
     var hiddenCount = 0;
     var hiddenByBlocked = 0;
+    var hiddenByTag = 0;
     final visibleTopicsAsync = topicsAsync.whenData((topics) {
-      final (visible, hidden, byBlocked) = TopicKeywordFilter.apply(
+      final result = TopicKeywordFilter.apply(
         topics,
         normalizedKeywords: keywords,
         wholeWord: wholeWord,
         blockedUsernames: blockedUsernames,
+        blockedTags: blockedTags,
+        exemptTags: exemptTags,
       );
-      hiddenCount = hidden;
-      hiddenByBlocked = byBlocked;
-      return visible;
+      hiddenCount = result.hiddenCount;
+      hiddenByBlocked = result.hiddenByBlocked;
+      hiddenByTag = result.hiddenByTag;
+      return result.visible;
     });
     final selectedTopicId = ref.watch(selectedTopicProvider).topicId;
     // 列表层读取一次；itemBuilder 冷挂载每张卡时直接复用结果。
@@ -3040,6 +3070,7 @@ class _TopicListState extends ConsumerState<_TopicList>
                                 child: KeywordFilterHintBar(
                                   hiddenCount: hiddenCount,
                                   hiddenByBlocked: hiddenByBlocked,
+                                  hiddenByTag: hiddenByTag,
                                 ),
                               );
                             }

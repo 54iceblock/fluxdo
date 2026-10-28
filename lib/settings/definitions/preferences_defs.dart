@@ -8,14 +8,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/s.dart';
 import '../../providers/ai_post_review_provider.dart';
 import '../../providers/ai_translation_provider.dart';
+import '../../providers/category_provider.dart';
 import '../../providers/preferences_provider.dart';
 import '../../providers/render_crash_provider.dart';
 import '../../providers/secret_store_provider.dart';
 import '../../services/crypto/crypto_key_store.dart';
 import '../../services/toast_service.dart';
 import '../../utils/dialog_utils.dart';
+import '../../utils/blocked_tag_filter.dart';
 import '../../utils/blocked_user_filter.dart';
 import '../../widgets/ai/ai_model_select_sheet.dart';
+import '../../widgets/common/tag_selection_sheet.dart';
 import '../../providers/sticker_provider.dart';
 import '../../services/sticker_market_service.dart';
 import '../settings_model.dart';
@@ -105,6 +108,19 @@ List<SettingsGroup> buildPreferencesGroups(BuildContext context) {
             return l10n.preferences_blockedUsernamesCount(count);
           },
           onTap: (context, ref) => showBlockedUsernamesDialog(context, ref),
+        ),
+        ActionModel(
+          id: 'blockedTags',
+          title: l10n.preferences_blockedTags,
+          subtitle: l10n.preferences_blockedTagsDesc,
+          icon: Symbols.label_off_rounded,
+          wrapSubtitle: true,
+          getDynamicSubtitle: (ref) {
+            final count = ref.watch(preferencesProvider).blockedTags.length;
+            if (count == 0) return null;
+            return l10n.preferences_blockedTagsCount(count);
+          },
+          onTap: (context, ref) => showBlockedTagsDialog(context, ref),
         ),
         SwitchModel(
           id: 'showFilterHint',
@@ -777,6 +793,142 @@ class _BlockedUsernamesDialogState extends State<_BlockedUsernamesDialog> {
 }
 
 typedef _TokenDuplicate = bool Function(String existing, String candidate);
+
+bool _isSameBlockedTag(String existing, String candidate) =>
+    BlockedTagFilter.normalizeTag(existing) ==
+    BlockedTagFilter.normalizeTag(candidate);
+
+Future<void> showBlockedTagsDialog(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final tags = ref.read(preferencesProvider).blockedTags;
+  final result = await showAppDialog<List<String>>(
+    context: context,
+    builder: (_) => _BlockedTagsDialog(initialTags: tags),
+  );
+  if (result == null || !context.mounted) return;
+  await ref.read(preferencesProvider.notifier).setBlockedTags(result);
+}
+
+class _BlockedTagsDialog extends ConsumerStatefulWidget {
+  final List<String> initialTags;
+
+  const _BlockedTagsDialog({required this.initialTags});
+
+  @override
+  ConsumerState<_BlockedTagsDialog> createState() => _BlockedTagsDialogState();
+}
+
+class _BlockedTagsDialogState extends ConsumerState<_BlockedTagsDialog> {
+  late final TextEditingController _controller;
+  late final List<String> _tags;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '');
+    _tags = BlockedTagFilter.sanitizeTags(widget.initialTags);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// 从站点标签列表里挑，避免手打长标签名出错。弹窗内仍可手输冷门标签。
+  Future<void> _pickFromTagList() async {
+    // 站点标签列表已缓存时作为搜索失败时的兜底，未加载则交给 Sheet 自己拉取。
+    final availableTags = ref.read(tagsProvider).value ?? const <String>[];
+    final picked = await showAppBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => TagSelectionSheet(
+        availableTags: availableTags,
+        selectedTags: _tags,
+        maxTags: 999,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _tags
+        ..clear()
+        ..addAll(BlockedTagFilter.sanitizeTags(picked));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return AlertDialog(
+      scrollable: true,
+      title: Text(l10n.preferences_blockedTags),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  icon: const Icon(Symbols.sell_rounded, size: 18),
+                  label: Text(l10n.preferences_blockedTagsPick),
+                  onPressed: _pickFromTagList,
+                ),
+                const SizedBox(width: 4),
+                TextButton.icon(
+                  icon: const Icon(Symbols.clear_all_rounded, size: 18),
+                  label: Text(l10n.common_clear),
+                  onPressed: () => setState(() {
+                    _tags.clear();
+                    _controller.clear();
+                  }),
+                ),
+              ],
+            ),
+            _EntryChipsEditor(
+              controller: _controller,
+              entries: _tags,
+              hintText: l10n.preferences_blockedTagsHint,
+              helperText: l10n.preferences_blockedTagsHelper,
+              normalizeEntry: BlockedTagFilter.stripHashPrefix,
+              isDuplicate: _isSameBlockedTag,
+              onEntriesChanged: (entries) {
+                setState(() {
+                  _tags
+                    ..clear()
+                    ..addAll(entries);
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l10n.common_cancel),
+        ),
+        FilledButton(
+          onPressed: () {
+            final tags = _appendTokenEntries(
+              _tags,
+              _controller.text,
+              normalizeEntry: BlockedTagFilter.stripHashPrefix,
+              isDuplicate: _isSameBlockedTag,
+            );
+            Navigator.pop(context, BlockedTagFilter.sanitizeTags(tags));
+          },
+          child: Text(l10n.common_confirm),
+        ),
+      ],
+    );
+  }
+}
 
 List<String> _appendTokenEntries(
   List<String> existing,

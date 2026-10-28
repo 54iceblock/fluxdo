@@ -71,6 +71,17 @@
   },
   "preferences_blockedUsernamesHint": "輸入使用者名稱後按 Enter 新增",
   "preferences_blockedUsernamesHelper": "無需輸入 @；使用者名稱精確比對，不區分大小寫；不會呼叫 Discourse 的忽略功能",
+  "preferences_blockedTags": "本機封鎖標籤",
+  "preferences_blockedTagsDesc": "在本機話題列表中隱藏帶有這些標籤的話題；名單不會同步到 Linux.do",
+  "preferences_blockedTagsCount": "已封鎖 {count} 個標籤",
+  "@preferences_blockedTagsCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "preferences_blockedTagsHint": "輸入標籤名稱後按 Enter 新增",
+  "preferences_blockedTagsHelper": "無需輸入 #；標籤名稱精確比對，不區分大小寫；瀏覽該標籤本身頁面時不生效",
+  "preferences_blockedTagsPick": "從標籤列表選擇",
   "preferences_showFilterHint": "顯示過濾提示",
   "preferences_showFilterHintDesc": "話題列表頂部顯示被關鍵字或封鎖名單隱藏的數量",
   "preferences_autoPanguSpacing": "自動混排最佳化",

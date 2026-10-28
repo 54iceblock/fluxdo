@@ -88,6 +88,17 @@
   },
   "preferences_blockedUsernamesHint": "输入用户名后按回车添加",
   "preferences_blockedUsernamesHelper": "无需输入 @；用户名精确匹配，不区分大小写；不会调用 Discourse 的忽略功能",
+  "preferences_blockedTags": "本地屏蔽标签",
+  "preferences_blockedTagsDesc": "在本机话题列表中隐藏带有这些标签的话题；名单不会同步到 Linux.do",
+  "preferences_blockedTagsCount": "已屏蔽 {count} 个标签",
+  "@preferences_blockedTagsCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "preferences_blockedTagsHint": "输入标签名后按回车添加",
+  "preferences_blockedTagsHelper": "无需输入 #；标签名精确匹配，不区分大小写；浏览该标签自身页面时不生效",
+  "preferences_blockedTagsPick": "从标签列表选择",
   "preferences_showFilterHint": "显示过滤提示",
   "preferences_showFilterHintDesc": "话题列表顶部显示被关键词或屏蔽名单隐藏的数量",
   "preferences_autoPanguSpacing": "自动混排优化",

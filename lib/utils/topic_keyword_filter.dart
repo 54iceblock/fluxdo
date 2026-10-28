@@ -1,33 +1,88 @@
 import '../models/topic.dart';
+import 'blocked_tag_filter.dart';
 import 'blocked_user_filter.dart';
+
+/// 话题列表本地过滤结果。
+///
+/// 用结果类而不是位置元组：过滤维度还会继续增加，每加一项都改签名会把
+/// 所有调用点（3 个页面 × 2 处 + 测试）一起刷一遍。
+class TopicFilterResult {
+  /// 过滤后可见的话题（未过滤时与传入列表同一个实例）
+  final List<Topic> visible;
+
+  /// 隐藏总数 = [hiddenByBlocked] + [hiddenByTag] + 关键词命中数
+  final int hiddenCount;
+
+  /// 因本地屏蔽名单（发帖人）隐藏的数量
+  final int hiddenByBlocked;
+
+  /// 因本地屏蔽标签隐藏的数量
+  final int hiddenByTag;
+
+  const TopicFilterResult(
+    this.visible, {
+    this.hiddenCount = 0,
+    this.hiddenByBlocked = 0,
+    this.hiddenByTag = 0,
+  });
+
+  /// 因标题关键词隐藏的数量
+  int get hiddenByKeyword => hiddenCount - hiddenByBlocked - hiddenByTag;
+
+  bool get hasHidden => hiddenCount > 0;
+}
 
 /// 标题关键词过滤工具。
 ///
 /// 关键词在 [PreferencesNotifier] 保存时已 trim + 去重；调用方需传入
 /// `normalizedFilterKeywords`（已 lowercase）以避免重复归一化开销。
+/// 标签与屏蔽名单的归一化同理。
 class TopicKeywordFilter {
   TopicKeywordFilter._();
 
   static const int autoLoadVisibleThreshold = 5;
   static const int autoLoadMaxAttempts = 3;
 
-  /// 应用关键词与本地屏蔽名单过滤，返回
-  /// `(可见列表, 隐藏总数, 其中因屏蔽名单隐藏的数量)`。
+  /// 是否存在任何会隐藏话题的本地过滤条件。
+  ///
+  /// 供各页判断用完 loadMore 后要不要自动续加载：没有过滤时多看一页是
+  /// 浪费请求。
+  static bool hasAnyFilter({
+    required List<String> normalizedKeywords,
+    Set<String> blockedUsernames = const <String>{},
+    Set<String> blockedTags = const <String>{},
+  }) =>
+      normalizedKeywords.isNotEmpty ||
+      blockedUsernames.isNotEmpty ||
+      blockedTags.isNotEmpty;
+
+  /// 应用关键词、本地屏蔽名单与本地屏蔽标签过滤。
   ///
   /// - [normalizedKeywords] 必须是已 trim + lowercase + 去空的列表。
   /// - [wholeWord] 为 true 时：对纯 ASCII word-char 关键词（如 `ai`、`db_2`）
-  ///   使用单词边界（`\b`）匹配；对含非 word-char（如中文）的关键词依然走子串
-  ///   匹配——Dart 的 `\b` 不在两个非 word-char 之间产生边界，强制套 `\b`
-  ///   会让 `\b中文\b` 几乎不可能命中。
-  static (List<Topic> visible, int hiddenCount, int hiddenByBlocked) apply(
+  ///   使用单词边界（`\\b`）匹配；对含非 word-char（如中文）的关键词依然走子串
+  ///   匹配——Dart 的 `\\b` 不在两个非 word-char 之间产生边界，强制套 `\\b`
+  ///   会让 `\\b中文\\b` 几乎不可能命中。
+  /// - [blockedTags] 与 [exemptTags] 都是已归一化（lowercase）的标签集合，
+  ///   见 [BlockedTagFilter.normalizedTags]。
+  ///
+  /// 每条被隐藏的话题只归入一个原因，判定顺序为
+  /// 屏蔽名单 → 屏蔽标签 → 关键词，因此三个计数相加等于 [TopicFilterResult.hiddenCount]。
+  static TopicFilterResult apply(
     List<Topic> topics, {
     required List<String> normalizedKeywords,
     required bool wholeWord,
     Set<String> blockedUsernames = const <String>{},
+    Set<String> blockedTags = const <String>{},
+    Set<String> exemptTags = const <String>{},
   }) {
-    if ((normalizedKeywords.isEmpty && blockedUsernames.isEmpty) ||
+    if (!hasAnyFilter(
+          normalizedKeywords: normalizedKeywords,
+          blockedUsernames: blockedUsernames,
+          blockedTags: blockedTags,
+        ) ||
         topics.isEmpty) {
-      return (topics, 0, 0);
+      return TopicFilterResult(topics);
     }
 
     final substrings = <String>[];
@@ -45,17 +100,30 @@ class TopicKeywordFilter {
     final visible = <Topic>[];
     var hidden = 0;
     var hiddenByBlocked = 0;
+    var hiddenByTag = 0;
     for (final topic in topics) {
       if (BlockedUserFilter.isBlockedTopic(topic, blockedUsernames)) {
         hidden++;
         hiddenByBlocked++;
+      } else if (BlockedTagFilter.isBlockedTopic(
+        topic,
+        blockedTags,
+        exemptTags: exemptTags,
+      )) {
+        hidden++;
+        hiddenByTag++;
       } else if (_matches(topic.title, substrings, regexes)) {
         hidden++;
       } else {
         visible.add(topic);
       }
     }
-    return (visible, hidden, hiddenByBlocked);
+    return TopicFilterResult(
+      visible,
+      hiddenCount: hidden,
+      hiddenByBlocked: hiddenByBlocked,
+      hiddenByTag: hiddenByTag,
+    );
   }
 
   static bool _matches(
@@ -75,7 +143,7 @@ class TopicKeywordFilter {
     return false;
   }
 
-  /// 关键词是否全部由 ASCII 字母 / 数字 / 下划线组成（`\w` 等价集）。
+  /// 关键词是否全部由 ASCII 字母 / 数字 / 下划线组成（`\\w` 等价集）。
   static bool _isAsciiWordOnly(String s) {
     if (s.isEmpty) return false;
     for (final code in s.codeUnits) {
