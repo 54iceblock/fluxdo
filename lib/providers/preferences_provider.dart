@@ -16,6 +16,7 @@ import '../services/uploads/upload_settings.dart';
 import '../services/cf_challenge_service.dart';
 import '../services/crash_context_reporter.dart';
 import '../services/render_backend_service.dart';
+import '../utils/blocked_tag_filter.dart';
 import '../utils/blocked_user_filter.dart';
 import '../widgets/topic/topic_card_layout.dart';
 import 'theme_provider.dart';
@@ -125,6 +126,10 @@ class AppPreferences {
   /// 本地内容屏蔽用户名列表。只影响本客户端的展示，不会同步到 Discourse。
   final List<String> blockedUsernames;
 
+  /// 本地屏蔽标签列表。只影响本客户端话题列表的展示，不会同步到
+  /// Discourse（不同于标签通知级别的「静音」，后者会写回站点）。
+  final List<String> blockedTags;
+
   /// 是否在话题列表顶部显示「已隐藏 N 条话题」提示条。
   ///
   /// 只管提示条本身：关掉后关键词过滤与本地屏蔽名单照常生效，只是不再
@@ -142,6 +147,11 @@ class AppPreferences {
   /// 本地内容屏蔽用户名的归一化集合，匹配时使用。
   late final Set<String> normalizedBlockedUsernames =
       BlockedUserFilter.normalizedUsernames(blockedUsernames);
+
+  /// 本地屏蔽标签的归一化集合（trim + lowercase），匹配时使用。
+  late final Set<String> normalizedBlockedTags = BlockedTagFilter.normalizedTags(
+    blockedTags,
+  );
 
   /// 崩溃日志上报（仅 Android）
   final bool crashlytics;
@@ -321,6 +331,7 @@ class AppPreferences {
     required this.topicFilterKeywords,
     this.topicFilterWholeWord = false,
     this.blockedUsernames = const [],
+    this.blockedTags = const [],
     this.showFilterHint = true,
     required this.crashlytics,
     required this.renderGlesBackend,
@@ -388,6 +399,7 @@ class AppPreferences {
     List<String>? topicFilterKeywords,
     bool? topicFilterWholeWord,
     List<String>? blockedUsernames,
+    List<String>? blockedTags,
     bool? showFilterHint,
     bool? crashlytics,
     bool? renderGlesBackend,
@@ -456,6 +468,7 @@ class AppPreferences {
       topicFilterKeywords: topicFilterKeywords ?? this.topicFilterKeywords,
       topicFilterWholeWord: topicFilterWholeWord ?? this.topicFilterWholeWord,
       blockedUsernames: blockedUsernames ?? this.blockedUsernames,
+      blockedTags: blockedTags ?? this.blockedTags,
       showFilterHint: showFilterHint ?? this.showFilterHint,
       crashlytics: crashlytics ?? this.crashlytics,
       renderGlesBackend: renderGlesBackend ?? this.renderGlesBackend,
@@ -551,6 +564,7 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
   static const String _topicFilterKeywordsKey = 'pref_topic_filter_keywords';
   static const String _topicFilterWholeWordKey = 'pref_topic_filter_whole_word';
   static const String _blockedUsernamesKey = 'pref_blocked_usernames';
+  static const String _blockedTagsKey = 'pref_blocked_tags';
   static const String _showFilterHintKey = 'pref_show_filter_hint';
   static const String _crashlyticsKey = 'pref_crashlytics';
 
@@ -647,6 +661,7 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
               _prefs.getBool(_topicFilterWholeWordKey) ?? false,
           blockedUsernames:
               _prefs.getStringList(_blockedUsernamesKey) ?? const [],
+          blockedTags: _prefs.getStringList(_blockedTagsKey) ?? const [],
           showFilterHint: _prefs.getBool(_showFilterHintKey) ?? true,
           crashlytics: _prefs.getBool(_crashlyticsKey) ?? true,
           renderGlesBackend: _prefs.getBool(_renderGlesBackendKey) ?? false,
@@ -836,6 +851,34 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
     }
     state = state.copyWith(blockedUsernames: sanitized);
     await _prefs.setStringList(_blockedUsernamesKey, sanitized);
+  }
+
+  Future<void> setBlockedTags(List<String> tags) async {
+    final sanitized = BlockedTagFilter.sanitizeTags(tags);
+    final current = state.blockedTags;
+    if (sanitized.length == current.length &&
+        const ListEquality<String>().equals(sanitized, current)) {
+      return;
+    }
+    state = state.copyWith(blockedTags: sanitized);
+    await _prefs.setStringList(_blockedTagsKey, sanitized);
+  }
+
+  /// 标签页「在本机屏蔽此标签」按钮用：名单里已有则移除，没有则加入。
+  Future<void> toggleBlockedTag(String tag) async {
+    final key = BlockedTagFilter.normalizeTag(tag);
+    if (key.isEmpty) return;
+    final current = state.blockedTags;
+    final exists = current.any(
+      (entry) => BlockedTagFilter.normalizeTag(entry) == key,
+    );
+    await setBlockedTags(
+      exists
+          ? current
+                .where((entry) => BlockedTagFilter.normalizeTag(entry) != key)
+                .toList()
+          : [...current, tag],
+    );
   }
 
   Future<void> setShowFilterHint(bool enabled) async {
