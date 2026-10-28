@@ -112,6 +112,20 @@
   "tag_levelWatchingDesc": "自動關注此標籤下的所有話題，有新話題或新回覆時通知",
   "tag_levelWatchingFirstPostDesc": "此標籤有新話題時通知",
   "tag_notificationLoadFailed": "載入標籤訂閱設定失敗，點選重試",
+  "tag_localBlock": "在本機封鎖此標籤",
+  "tag_localUnblock": "取消本機封鎖",
+  "tag_localBlocked": "已在其它話題列表中隱藏 #{tag}",
+  "@tag_localBlocked": {
+    "placeholders": {
+      "tag": {"type": "String"}
+    }
+  },
+  "tag_localUnblocked": "已取消封鎖 #{tag}",
+  "@tag_localUnblocked": {
+    "placeholders": {
+      "tag": {"type": "String"}
+    }
+  },
   "tag_tabTags": "標籤",
   "tag_maxTagsReached": "最多隻能選擇 {max} 個標籤",
   "tag_noTags": "暫無可用標籤",

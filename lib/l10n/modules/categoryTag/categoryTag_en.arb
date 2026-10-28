@@ -37,6 +37,20 @@
   "tag_levelWatchingDesc": "Automatically watch all topics with this tag and notify about new topics and replies",
   "tag_levelWatchingFirstPostDesc": "Notify when new topics with this tag are created",
   "tag_notificationLoadFailed": "Failed to load tag notification settings. Tap to retry",
+  "tag_localBlock": "Block this tag locally",
+  "tag_localUnblock": "Unblock this tag locally",
+  "tag_localBlocked": "#{tag} is now hidden in other topic lists",
+  "@tag_localBlocked": {
+    "placeholders": {
+      "tag": {"type": "String"}
+    }
+  },
+  "tag_localUnblocked": "#{tag} is no longer blocked",
+  "@tag_localUnblocked": {
+    "placeholders": {
+      "tag": {"type": "String"}
+    }
+  },
   "tag_tabTags": "Tags",
   "tag_maxTagsReached": "Maximum {max} tags allowed",
   "tag_noTags": "No tags available",

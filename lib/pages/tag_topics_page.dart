@@ -25,6 +25,7 @@ import 'search_page.dart';
 import '../models/search_filter.dart';
 import 'package:dio/dio.dart';
 import '../services/app_error_handler.dart';
+import '../services/toast_service.dart';
 import '../l10n/s.dart';
 import '../widgets/desktop_refresh_indicator.dart';
 import '../widgets/layout/master_detail_layout.dart';
@@ -60,16 +61,16 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
   bool _ascending = false;
   List<String> _lastAutoLoadKeywords = const [];
   Set<String> _lastAutoLoadBlockedUsernames = const <String>{};
-  bool? _lastAutoLoadWholeWord;
   Set<String> _lastAutoLoadBlockedTags = const <String>{};
+  bool? _lastAutoLoadWholeWord;
 
-  TopicListUpdateQuery get _topicUpdatesQuery => TopicListUpdateQuery(
   /// 本页豁免的屏蔽标签：正在浏览某个标签自身，说明用户想看它，
   /// 不能让它被本机屏蔽名单整片清空。
   late final Set<String> _exemptTags = {
     BlockedTagFilter.normalizeTag(widget.tagName),
   };
 
+  TopicListUpdateQuery get _topicUpdatesQuery => TopicListUpdateQuery(
     filter: _currentFilter,
     subset: _currentSubset,
     tags: [widget.tagName],
@@ -150,8 +151,8 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
     final keywords = prefs.normalizedFilterKeywords;
     final wholeWord = prefs.topicFilterWholeWord;
     final blockedUsernames = prefs.normalizedBlockedUsernames;
-
     final blockedTags = prefs.normalizedBlockedTags;
+
     int visibleItemCount() {
       return TopicKeywordFilter.apply(
         _topics,
@@ -352,8 +353,8 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
     List<String> keywords,
     bool wholeWord,
     Set<String> blockedUsernames,
-  ) {
     Set<String> blockedTags,
+  ) {
     if (listEquals(_lastAutoLoadKeywords, keywords) &&
         _lastAutoLoadWholeWord == wholeWord &&
         setEquals(_lastAutoLoadBlockedUsernames, blockedUsernames) &&
@@ -363,13 +364,30 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
     _lastAutoLoadKeywords = List.unmodifiable(keywords);
     _lastAutoLoadWholeWord = wholeWord;
     _lastAutoLoadBlockedUsernames = Set.unmodifiable(blockedUsernames);
-    _loadMoreCoordinator.resetCooldown();
     _lastAutoLoadBlockedTags = Set.unmodifiable(blockedTags);
+    _loadMoreCoordinator.resetCooldown();
   }
 
   /// 本页专属平行视界栈(按 tagName family 隔离)。
   SelectedTopicProvider get _paneProvider =>
       selectedTagPaneProvider(widget.tagName);
+
+  /// 一键在「本机屏蔽此标签」与「取消屏蔽」之间切换。
+  ///
+  /// 本页豁免自身标签，所以切换后本页内容不变；用 Toast 说明「已在其它
+  /// 话题列表中隐藏」，避免用户以为没生效。
+  Future<void> _toggleLocalBlock(bool wasBlocked) async {
+    await ref
+        .read(preferencesProvider.notifier)
+        .toggleBlockedTag(widget.tagName);
+    if (!mounted) return;
+    final l10n = context.l10n;
+    ToastService.showInfo(
+      wasBlocked
+          ? l10n.tag_localUnblocked(widget.tagName)
+          : l10n.tag_localBlocked(widget.tagName),
+    );
+  }
 
   Future<void> _openTopic(Topic topic) async {
     // 树形视图从完整话题开始，续读楼层只用于平铺视图。
@@ -408,6 +426,12 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
     final selectedTopicId = ref.watch(_paneProvider).topicId;
     final currentUser = ref.watch(currentUserProvider).value;
     final isLoggedIn = currentUser != null;
+    // 本标签是否已被本机屏蔽（纯本地偏好，未登录也可用）
+    final tagLocallyBlocked = ref.watch(
+      preferencesProvider.select(
+        (p) => p.normalizedBlockedTags.contains(_exemptTags.first),
+      ),
+    );
 
     final list = Scaffold(
       appBar: AppBar(
@@ -419,6 +443,18 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
               key: ValueKey(currentUser.id),
               tagName: widget.tagName,
             ),
+          IconButton(
+            icon: Icon(
+              tagLocallyBlocked
+                  ? Symbols.label_off_rounded
+                  : Symbols.label_rounded,
+              fill: tagLocallyBlocked ? 1 : 0,
+            ),
+            onPressed: () => _toggleLocalBlock(tagLocallyBlocked),
+            tooltip: tagLocallyBlocked
+                ? context.l10n.tag_localUnblock
+                : context.l10n.tag_localBlock,
+          ),
           IconButton(
             icon: const Icon(Symbols.search_rounded),
             onPressed: () => Navigator.push(
@@ -482,6 +518,9 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
     final blockedUsernames = ref.watch(
       preferencesProvider.select((p) => p.normalizedBlockedUsernames),
     );
+    final blockedTags = ref.watch(
+      preferencesProvider.select((p) => p.normalizedBlockedTags),
+    );
     final showFilterHint = ref.watch(
       preferencesProvider.select((p) => p.showFilterHint),
     );
@@ -493,7 +532,11 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
       normalizedKeywords: keywords,
       wholeWord: wholeWord,
       blockedUsernames: blockedUsernames,
+      blockedTags: blockedTags,
+      exemptTags: _exemptTags,
     );
+    final visible = filterResult.visible;
+    final hidden = filterResult.hiddenCount;
     final hintOffset = (showFilterHint && hidden > 0) ? 1 : 0;
 
     return TopicCardPrewarmScope(
@@ -519,9 +562,6 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
               hiddenByBlocked: filterResult.hiddenByBlocked,
               hiddenByTag: filterResult.hiddenByTag,
             );
-    final blockedTags = ref.watch(
-      preferencesProvider.select((p) => p.normalizedBlockedTags),
-    );
           }
           final topicIndex = index - hintOffset - updateOffset;
           if (topicIndex >= visible.length) {
@@ -533,11 +573,7 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
                   children: [
                     Icon(Symbols.inbox_rounded, size: 48,
                       color: Theme.of(context).colorScheme.outline),
-      blockedTags: blockedTags,
-      exemptTags: _exemptTags,
                     const SizedBox(height: 12),
-    final visible = filterResult.visible;
-    final hidden = filterResult.hiddenCount;
                     Text(context.l10n.tagTopics_empty),
                   ],
                 )),
