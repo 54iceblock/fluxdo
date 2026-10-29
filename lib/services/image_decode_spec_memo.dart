@@ -1,3 +1,24 @@
+import 'package:flutter/widgets.dart';
+
+import 'discourse_cache_manager.dart';
+
+/// 按帖内登记的解码参数重建 provider，同步命中帖内那份已解码位图。
+///
+/// 长按预览、查看器缩略图占位等「再画一次帖内同一张图」的场景用它：
+/// 裸 `discourseImageProvider(url)` 是另一个缓存 key，会按原尺寸再解码
+/// 一份（optimized 图常见 4–16 MB）。未登记时退回裸 provider。
+ImageProvider resizedLikeInPost(String url) {
+  final spec = ImageDecodeSpecMemo.peek(url);
+  final provider = discourseImageProvider(url);
+  if (spec == null) return provider;
+  return ResizeImage(
+    provider,
+    width: spec.$1,
+    height: spec.$2,
+    policy: ResizeImagePolicy.fit,
+  );
+}
+
 /// url → 帖内解码参数(decode-time ResizeImage 的宽高 cap)的会话级备忘。
 ///
 /// 查看器打开时的缩略图占位必须与帖内用**完全相同的 provider 参数**:

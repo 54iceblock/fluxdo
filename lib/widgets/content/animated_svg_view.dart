@@ -86,6 +86,9 @@ class AnimatedSvgView extends StatefulWidget {
   static bool hasAnimations(String svgSource) =>
       AnimationDetector.hasAnimations(svgSource);
 
+  /// 内存压力 / 进后台:释放首帧快照的内存层(磁盘层保留)。
+  static void evictMemoryCache() => _SvgFirstFrameCache.evictMemory();
+
   /// 根 `<svg>` 标签几何:供管线记入尺寸备忘,
   /// 让占位在加载前就能预留精确高度。
   static ({double aspect, double? naturalW, double? naturalH, bool stretch})
@@ -134,6 +137,15 @@ class _SvgFirstFrameCache {
       _renderer.remove(key);
       _notifiers[key]?.bump();
     }
+  }
+
+  /// 释放内存层全部首帧 master(磁盘层保留,回来时 IO 线程解码复原)。
+  /// 使用方持有的是 clone,master dispose 不影响在屏显示。
+  static void evictMemory() {
+    for (final image in _images.values) {
+      image.dispose();
+    }
+    _images.clear();
   }
 
   static void put(int key, ui.Image master) {

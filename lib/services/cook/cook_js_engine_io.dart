@@ -38,9 +38,10 @@ class CookJsEngine {
       ? 'ohos-quickjs ${OhosQuickJs.version ?? 'unknown'}'
       : 'flutter_js';
 
-  /// 释放引擎资源（HarmonyOS 的 QuickJS 上下文需要显式释放）。
+  /// 释放引擎资源（QuickJS / JavaScriptCore 的原生上下文都需要显式释放）。
   void dispose() {
     _ohos?.dispose();
+    _runtime?.dispose();
   }
 
   /// eval 一段 JS，返回其字符串结果；JS 抛错/引擎错误返回 null 并携带错误。

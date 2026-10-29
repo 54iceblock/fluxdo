@@ -453,7 +453,7 @@ class _ImageViewerPageState extends ConsumerState<ImageViewerPage>
     final longestPx = (view.physicalSize.longestSide * 3)
         .clamp(2048.0, 8192.0)
         .round();
-    return ResizeImage(
+    final provider = ResizeImage(
       discourseImageProvider(
         url,
         bucket: BlobImageCache.originalBucket,
@@ -464,7 +464,16 @@ class _ImageViewerPageState extends ConsumerState<ImageViewerPage>
       height: longestPx,
       policy: ResizeImagePolicy.fit,
     );
+    _openedOriginals.add(provider);
+    return provider;
   }
+
+  /// 本次查看器解码过的原图 provider（单张最大可达数十 MB）。
+  ///
+  /// 原图 key 只有查看器自己用（帖内是另一组 ResizeImage key），关闭后
+  /// 留在 ImageCache 里只占内存不会被复用到；dispose 时逐个 evict。再次
+  /// 打开同一张图走磁盘 blob 缓存重新解码，不需要重新下载。
+  final Set<ImageProvider> _openedOriginals = {};
 
   /// 缩略图占位 provider:按帖内登记的解码参数原样重建 —— ImageCache 的
   /// key 是 ResizeImageKey(内层 key + 宽高 + 策略),参数一致才能同步命中
@@ -478,14 +487,7 @@ class _ImageViewerPageState extends ConsumerState<ImageViewerPage>
     if (url.contains('/user_avatar/')) {
       return discourseImageProvider(url, bucket: BlobImageCache.avatarBucket);
     }
-    final spec = ImageDecodeSpecMemo.peek(url);
-    if (spec == null) return discourseImageProvider(url);
-    return ResizeImage(
-      discourseImageProvider(url),
-      width: spec.$1,
-      height: spec.$2,
-      policy: ResizeImagePolicy.fit,
-    );
+    return resizedLikeInPost(url);
   }
 
   /// 下滑关闭判定:惯性投影终点法。
@@ -664,6 +666,11 @@ class _ImageViewerPageState extends ConsumerState<ImageViewerPage>
     }
     _restoreSystemUI();
     disposeDoubleTapZoom();
+    // 退出 Hero 飞行用的是缩略图 provider，与这里的原图 key 无关；
+    // evict 只移出缓存，仍在使用的流由各自的 handle 保活
+    for (final provider in _openedOriginals) {
+      unawaited(provider.evict());
+    }
     super.dispose();
   }
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' show MaterialPageRoute;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart' show ProviderScope;
@@ -681,5 +683,26 @@ typedef DetailScrollPositionKey = ({int topicId, String instanceId});
 ///
 /// 必须与 [topicDetailProvider] 一样按 `(topicId, instanceId)` 隔离；只按
 /// topicId 会让同一话题的不同平行视界层互相覆盖位置。
-final detailScrollPositionProvider =
-    StateProvider.family<int?, DetailScrollPositionKey>((ref, key) => null);
+///
+/// instanceId 是每次进详情页新生成的 UUID，非 autoDispose 时每开一次详情
+/// 就永久多一个条目（内存只增不减）。这里改为 autoDispose，但先 keepAlive：
+/// 写入方（详情页 eyeline 上报）和读取方（面板搬动重建时 `ref.read`）都不
+/// watch，直接 autoDispose 会在搬动间隙丢位置。因此在「无人监听」后再给
+/// 10 分钟宽限，覆盖平行视界层被压栈后返回的常见时长；期间一旦被读取 /
+/// 写入（重新订阅）就取消释放。
+final detailScrollPositionProvider = StateProvider.autoDispose
+    .family<int?, DetailScrollPositionKey>((ref, key) {
+      final link = ref.keepAlive();
+      Timer? disposeTimer;
+      void scheduleDispose() {
+        disposeTimer?.cancel();
+        disposeTimer = Timer(const Duration(minutes: 10), link.close);
+      }
+
+      ref.onCancel(scheduleDispose);
+      ref.onResume(() => disposeTimer?.cancel());
+      ref.onDispose(() => disposeTimer?.cancel());
+      // ref.read 不会触发 onCancel，从未被 watch 过也要能到期释放
+      scheduleDispose();
+      return null;
+    });

@@ -65,6 +65,7 @@ import 'package:fluxdo_render/fluxdo_render.dart'
     show FlattenCache, FoldShiftHook, ParagraphLayoutCache;
 
 import 'services/clipboard_topic_link_service.dart';
+import 'services/memory_reclaimer.dart';
 import 'services/deep_link_service.dart';
 import 'services/windows_protocol_registrar_stub.dart'
     if (dart.library.ffi) 'services/windows_protocol_registrar_io.dart';
@@ -90,7 +91,6 @@ import 'utils/dialog_utils.dart';
 import 'utils/frame_jank_monitor.dart';
 import 'utils/hashtag_handlers.dart';
 import 'utils/image_decode_gate.dart';
-import 'widgets/post/post_item/render_parse_cache.dart';
 import 'utils/scroll_busy_signal.dart';
 import 'theme/theme_resolver.dart';
 import 'widgets/common/app_background_layer.dart';
@@ -1679,18 +1679,13 @@ class _MainPageState extends ConsumerState<MainPage>
     // 系统内存压力统一入口:iOS 内存警告 / Android onTrimMemory /
     // 金标联盟公平运行内存 TRIM 广播(FairMemoryReceiver 翻译成同一
     // memoryPressure 通道)。imageCache(最大头,256MB 上限)由框架
-    // PaintingBinding.handleMemoryPressure 自清,这里补自建缓存:
-    // - RenderParseCache:纯数据,清空安全;
-    // - FlattenCache:引用计数设计,在用条目标 dead 延迟释放,安全;
-    // - ParagraphLayoutCache 刻意不清:evictAll 会 dispose 在屏
-    //   RenderObject 仍持有的 ui.Paragraph(paint 不重走 layout,
-    //   仅 reassemble 全量重建场景安全),且量级仅数 MB 不值得冒险。
-    RenderParseCache.clear();
-    FlattenCache.evictAll();
+    // PaintingBinding.handleMemoryPressure 自清。
+    // 自建缓存统一释放(解析 / flatten / 离屏段落 / 话题卡位图与排版 /
+    // SVG 首帧),均只释放可再生部分,见 MemoryReclaimer。
+    MemoryReclaimer.onMemoryPressure();
     // 公平内存机制下持续增长会触达查杀线,先把监控现场落盘(未启用
     // 或无记录时内部直接返回,静默失败)。
     unawaited(FrameJankMonitor.persistSnapshot());
-    debugPrint('[MainPage] 内存压力:已清理解析/flatten 缓存');
   }
 
   Future<void> _resumeFromBackground() async {
@@ -1788,9 +1783,11 @@ class _MainPageState extends ConsumerState<MainPage>
     // - 移动端保留——降后台驻留配合保活,降低 LMKD 击杀概率(被杀
     //   = 通知轮询没了);LMKD 不总先发 memory pressure,框架自清
     //   兜不住这个场景。
-    if (!PlatformUtils.isDesktop) {
-      PaintingBinding.instance.imageCache.clear();
-    }
+    // 自建缓存(话题卡位图/排版、离屏段落、SVG 首帧)在所有平台都释放:
+    // 它们逐条 dispose 量小,不触发上面那类批量贴图销毁问题。
+    MemoryReclaimer.onEnterBackground(
+      clearImageCache: !PlatformUtils.isDesktop,
+    );
 
     // 诊断快照落盘:进程随后被杀时环形缓冲现场不再全丢(监控未启用
     // 或无记录时内部直接返回;静默失败,不干扰退后台路径)

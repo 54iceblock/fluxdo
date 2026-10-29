@@ -1,7 +1,53 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluxdo/services/discourse_cook_service.dart';
+import 'package:fluxdo/services/preloaded_data_service.dart';
 
 void main() {
+  group('DiscourseCookService.release', () {
+    TestWidgetsFlutterBinding.ensureInitialized();
+
+    setUpAll(() async {
+      final loaded = await PreloadedDataService().hydrateFromHtml(
+        '<meta id="data-discourse-setup">'
+        '<script id="data-preloaded" type="application/json">${jsonEncode({
+          'currentUser': {'id': 1, 'username': 'tester'},
+          'siteSettings': {'max_post_length': 10000},
+          'site': {'categories': [], 'top_tags': []},
+        })}</script>',
+      );
+      expect(loaded, isTrue);
+    });
+
+    tearDown(() => DiscourseCookService().release(reason: 'test'));
+
+    test('释放后引擎为空，下次 cook 懒重建且结果一致', () async {
+      final service = DiscourseCookService();
+      final first = await service.cook('**hello**');
+      expect(first, contains('<strong>hello</strong>'));
+      expect(service.hasEngine, isTrue);
+
+      service.release(reason: 'test');
+      expect(service.hasEngine, isFalse);
+
+      final second = await service.cook('**hello**');
+      expect(second, first);
+      expect(service.hasEngine, isTrue);
+    });
+
+    test('重复释放与未初始化时释放都安全', () {
+      final service = DiscourseCookService();
+      service.release(reason: 'test');
+      service.release(reason: 'test');
+      expect(service.hasEngine, isFalse);
+    });
+
+    test('空闲释放时长为 2 分钟', () {
+      expect(DiscourseCookService.idleReleaseDelay, const Duration(minutes: 2));
+    });
+  });
+
   group('DiscourseCookService.postProcessCooked', () {
     test('span.mention 转成 a.mention 并拼 baseUri', () {
       const cooked = '<p>hi <span class="mention">@sam_saffron</span>!</p>';

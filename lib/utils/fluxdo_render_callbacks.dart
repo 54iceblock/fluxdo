@@ -28,6 +28,7 @@ import '../services/discourse/discourse_service.dart';
 import '../services/discourse_cache_manager.dart';
 import '../services/emoji_handler.dart';
 import '../services/highlighter_service.dart';
+import '../services/image_decode_spec_memo.dart';
 import '../services/media_compat_service.dart';
 import '../services/toast_service.dart';
 import '../utils/discourse_url_parser.dart';
@@ -1372,8 +1373,10 @@ class FluxdoRenderCallbacks {
                   heroTag: heroTag,
                   lift: ImageLiftSpec(
                     sourceContext: ctx,
+                    // 按 LazyImage 登记的解码参数重建 → 与帖内同 key,
+                    // 直接复用在屏位图(裸 provider 会按原尺寸再解一份)
                     previewBuilder: (_) => Image(
-                      image: discourseImageProvider(displayUrl),
+                      image: resizedLikeInPost(displayUrl),
                       fit: inGridTile ? BoxFit.cover : BoxFit.contain,
                       gaplessPlayback: true,
                     ),
@@ -1392,7 +1395,7 @@ class FluxdoRenderCallbacks {
                   lift: ImageLiftSpec(
                     sourceContext: ctx,
                     previewBuilder: (_) => Image(
-                      image: discourseImageProvider(displayUrl),
+                      image: resizedLikeInPost(displayUrl),
                       fit: inGridTile ? BoxFit.cover : BoxFit.contain,
                       gaplessPlayback: true,
                     ),

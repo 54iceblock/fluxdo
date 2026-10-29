@@ -116,6 +116,8 @@ class _BookmarksPageState extends ConsumerState<BookmarksPage> {
     _setMobileBottomBarHidden(false);
     _scrollController.dispose();
     Future.microtask(_searchNotifier.exitSearchMode);
+    // 卡片缓存的闭包捕获本 State，离开页面即释放
+    BookmarksListContent.clearItemCache();
     super.dispose();
   }
 

@@ -256,6 +256,8 @@ document.close();
     Future<void>? cancelFuture,
   ) async {
     setRequestAdapterLogName(options, 'webview');
+    _idleReleaseTimer?.cancel();
+    _idleReleaseTimer = null;
     _activeFetches++;
 
     final totalWatch = Stopwatch()..start();
@@ -522,9 +524,7 @@ document.close();
       final responseData = jsonDecode(resultStr) as Map<String, dynamic>;
 
       if (responseData['ok'] != true) {
-        _logOhosFetch(
-          'fetch js error id=$requestId: ${responseData['error']}',
-        );
+        _logOhosFetch('fetch js error id=$requestId: ${responseData['error']}');
         throw DioException(
           requestOptions: options,
           error: responseData['error']?.toString() ?? 'Unknown error',
@@ -621,8 +621,29 @@ document.close();
       _activeFetches--;
       if (_activeFetches == 0 && _disposeWhenIdle) {
         close(force: false);
+      } else if (_activeFetches == 0) {
+        _scheduleIdleRelease();
       }
     }
+  }
+
+  /// 空闲多久后释放 headless WebView。
+  ///
+  /// 真机实测(鸿蒙,2026-10-28)ArkWeb 堆常驻 50–63 MB。WebView 栈只在
+  /// CF 挑战重放 / 用户显式开启浏览器栈时使用,大部分时间闲置;下一次
+  /// fetch 会经 [initialize] 懒重建(约数百 ms,只发生在闲置后的首个请求)。
+  @visibleForTesting
+  static Duration idleReleaseDelay = const Duration(minutes: 2);
+  Timer? _idleReleaseTimer;
+
+  void _scheduleIdleRelease() {
+    _idleReleaseTimer?.cancel();
+    _idleReleaseTimer = Timer(idleReleaseDelay, () {
+      _idleReleaseTimer = null;
+      if (_activeFetches > 0 || _headlessWebView == null) return;
+      FrameJankMonitor.logEvent('WEBVIEW', 'HttpAdapter idle release');
+      close(force: false);
+    });
   }
 
   void disposeWhenIdle() {
@@ -1042,6 +1063,8 @@ document.close();
       _disposeWhenIdle = true;
       return;
     }
+    _idleReleaseTimer?.cancel();
+    _idleReleaseTimer = null;
     if (_headlessWebView != null) {
       FrameJankMonitor.logEvent('WEBVIEW', 'HttpAdapter dispose');
     }

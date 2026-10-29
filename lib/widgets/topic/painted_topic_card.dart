@@ -386,6 +386,20 @@ class TopicCardImages {
   static final Map<String, Set<RenderObject>> _waiters = {};
   static const int _cap = 400;
 
+  /// 释放全部已解码位图（进后台 / 内存压力）。
+  ///
+  /// 在屏卡持有的只是 URL，paint 时重新 lookup：清空后下一帧 miss 会重新
+  /// 走磁盘 blob 解码并 markNeedsPaint 补画，不会画到已 dispose 的图。
+  /// 在途解码不受影响（完成后照常入表）。
+  static void evictAll() {
+    for (final image in _images.values) {
+      image.dispose();
+    }
+    _images.clear();
+  }
+
+  static int get length => _images.length;
+
   static ui.Image? lookup(
     String url,
     RenderObject requester, {

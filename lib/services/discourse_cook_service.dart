@@ -28,10 +28,52 @@ class DiscourseCookService {
   Future<bool>? _initFuture;
   bool _unavailable = false;
 
+  /// 最后一次使用后多久释放引擎。
+  ///
+  /// 引擎 eval 551K bundle + 站点数据后常驻约 8–25 MB 原生堆，只有编辑器
+  /// 用得到；重建一次约 80–100 ms，编辑器打开时 [warmUp] 会提前做掉。
+  static const Duration idleReleaseDelay = Duration(minutes: 2);
+  Timer? _idleTimer;
+
+  /// 正在执行的引擎调用数：大于 0 时不释放（[resolveOneboxes] 跨 await
+  /// 持有引擎）。
+  int _busy = 0;
+
+  /// 当前是否持有已初始化的引擎（诊断 / 测试用）。
+  bool get hasEngine => _engine != null;
+
   /// 预热：编辑器打开时 fire-and-forget 调用，把「读 551K bundle + eval +
   /// init 站点数据」的开销挪到用户切预览之前。
   void warmUp() {
     unawaited(ensureInitialized());
+  }
+
+  void _touch() {
+    _idleTimer?.cancel();
+    // 挂在 root zone：服务是进程级单例，计时器不属于任何调用方的 zone
+    // （否则 widget 测试的 fake 时钟会把它当成用例遗留的 Timer）。
+    _idleTimer = Zone.root.createTimer(
+      idleReleaseDelay,
+      () => release(reason: '空闲'),
+    );
+  }
+
+  /// 释放 JS 引擎（空闲到期 / 系统内存压力）。下次使用时懒重建。
+  ///
+  /// 正在初始化或有调用在途时不释放：初始化中的引擎随后会被 [_touch]
+  /// 重新计时；在途调用结束后由空闲计时器兜底。
+  void release({String reason = ''}) {
+    _idleTimer?.cancel();
+    _idleTimer = null;
+    final engine = _engine;
+    if (engine == null || _busy > 0) return;
+    _engine = null;
+    _initFuture = null;
+    // onebox 已 seed 进引擎缓存，引擎释放后需要重新请求
+    _oneboxAttempted.clear();
+    _inlineOneboxAttempted.clear();
+    engine.dispose();
+    debugPrint('[DiscourseCook] 引擎已释放($reason)');
   }
 
   /// 幂等初始化。失败后置为不可用（本次进程内不再重试 eval 大 bundle，
@@ -111,6 +153,7 @@ class DiscourseCookService {
       }
 
       _engine = engine;
+      _touch();
       debugPrint('[DiscourseCook] 初始化完成');
       return true;
     } catch (e) {
@@ -136,6 +179,7 @@ class DiscourseCookService {
     if (!await ensureInitialized()) return null;
     final engine = _engine;
     if (engine == null) return null;
+    _touch();
 
     String? cookError;
     final cooked = engine.evaluate(
@@ -154,6 +198,7 @@ class DiscourseCookService {
   Future<Map<String, dynamic>?> parseForEditor(String raw) async {
     try {
       if (!await ensureInitialized()) return null;
+      _touch();
       var failed = false;
       final result = _engine?.evaluate(
         '__fluxdoCook.parseForEditor(${jsonEncode(raw)})',
@@ -243,7 +288,16 @@ class DiscourseCookService {
   Future<bool> resolveOneboxes(String cooked) async {
     final engine = _engine;
     if (engine == null) return false;
+    _busy++;
+    try {
+      return await _resolveOneboxes(engine, cooked);
+    } finally {
+      _busy--;
+      _touch();
+    }
+  }
 
+  Future<bool> _resolveOneboxes(CookJsEngine engine, String cooked) async {
     final targets = extractOneboxTargets(cooked);
     var seeded = false;
     final service = DiscourseService();

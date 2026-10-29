@@ -360,6 +360,26 @@ class NativeAnimatedImageProvider extends ImageProvider<NativeAnimatedImageProvi
   String toString() => 'NativeAnimatedImageProvider(${_source.cacheKey}, scale: $scale)';
 }
 
+/// 测试用:直接驱动 Rust 路径的惰性帧序列(不经 FFI)。
+@visibleForTesting
+class DebugLazyFrameSequence {
+  DebugLazyFrameSequence(DecodedAnimatedImage decoded)
+      : _seq = _LazyRgbaFrameSequence(decoded);
+
+  final _LazyRgbaFrameSequence _seq;
+
+  /// 推进播放,返回本帧图像(序列内部持有,勿 dispose)。
+  Future<ui.Image> nextFrame() async => (await _seq.nextFrame()).image;
+
+  void trim() => _seq.trim();
+
+  /// 当前缓存的已转换帧数。
+  int get convertedCount => _seq._converted.where((f) => f != null).length;
+
+  /// 仍保留 RGBA 源数据的帧数。
+  int get retainedSourceCount => _seq._rgba.where((r) => r != null).length;
+}
+
 /// 单帧封装:ui.Image + 该帧 delay
 class _RenderableFrame {
   _RenderableFrame({required this.image, required this.delay});
@@ -390,6 +410,9 @@ abstract class _FrameSequence {
   /// 到点的 [nextFrame] 就能立即命中)。失败静默 —— [nextFrame] 会重试
   /// 并由调用方上报。
   void prefetchNext() {}
+
+  /// 无人观看时释放可再生的帧缓存(默认无操作)。
+  void trim() {}
 }
 
 /// Rust 解码路径的惰性帧序列:持有 RGBA 源数据,播放到哪帧转哪帧
@@ -399,7 +422,8 @@ abstract class _FrameSequence {
 ///   快速滚过的动图只花 1-2 帧的转换成本
 /// - engine 侧图像内存从"全帧常驻"降为"已播放过的帧";单帧 RGBA 源
 ///   数据转换完立即释放
-/// - 每帧只转换一次(永久缓存),循环播放第二轮起零成本,与旧行为一致
+/// - 有人观看期间每帧只转换一次,循环播放第二轮起零成本;无人观看时
+///   [trim] 释放首帧以外的已转换帧(GPU 纹理),滚回时按需重新转换
 class _LazyRgbaFrameSequence implements _FrameSequence {
   _LazyRgbaFrameSequence(DecodedAnimatedImage decoded)
       : _width = decoded.width,
@@ -412,11 +436,13 @@ class _LazyRgbaFrameSequence implements _FrameSequence {
   final int _width;
   final int _height;
 
-  /// 未转换帧的 RGBA 源数据;对应帧转换完成后置 null 让 GC 回收
+  /// RGBA 源数据。首帧转换后置 null(首帧永不被 [trim] 释放);其余帧
+  /// 保留,供 [trim] 后重新转换 —— 这部分只是 Dart 堆字节,ImageCache 的
+  /// 非 live 淘汰与 GC 会照常回收整条序列,不会额外常驻。
   final List<Uint8List?> _rgba;
   final List<Duration> _delays;
 
-  /// 已转换的帧(永久缓存)
+  /// 已转换的帧
   final List<_RenderableFrame?> _converted;
 
   /// 转换中的帧,避免 [nextFrame] 与 [prefetchNext] 对同一帧重复转换
@@ -467,12 +493,29 @@ class _LazyRgbaFrameSequence implements _FrameSequence {
           (index == 0 && gate != null) ? await gate(produce) : await produce();
       final frame = _RenderableFrame(image: image, delay: _delays[index]);
       _converted[index] = frame;
-      _rgba[index] = null;
+      if (index == 0) _rgba[index] = null;
       return frame;
     } finally {
       // 成功后 _frameAt 走 _converted 缓存;失败后允许下次重试
       _pending.remove(index);
     }
+  }
+
+  /// 无人观看时释放首帧以外的已转换帧。
+  ///
+  /// 安全性:emit 时交给 listener 的是 `clone()`,这里 dispose 的只是缓存
+  /// 自己的那份引用;转换中的帧([_pending])不受影响,完成后照常入表。
+  /// 播放游标归零:恢复观看时从首帧开始(首帧常驻,立即可显)。
+  @override
+  void trim() {
+    for (var i = 1; i < _converted.length; i++) {
+      final frame = _converted[i];
+      if (frame != null) {
+        frame.image.dispose();
+        _converted[i] = null;
+      }
+    }
+    _cursor = 0;
   }
 }
 
@@ -507,6 +550,10 @@ class _CodecFrameSequence implements _FrameSequence {
     _prefetched = null;
     return pending;
   }
+
+  /// 流式路径本就不缓存帧,无需释放。
+  @override
+  void trim() {}
 
   @override
   void prefetchNext() {
@@ -798,9 +845,11 @@ class _NativeAnimatedImageStreamCompleter extends ImageStreamCompleter {
       }
 
       // nextFrame 真异步时,await 期间 listener 可能已全部移除
+      // (removeListener 因 _emitting 跳过了 trim,这里补上)
       if (!hasListeners) {
         _timer?.cancel();
         _timer = null;
+        sequence.trim();
         return;
       }
 
@@ -840,6 +889,11 @@ class _NativeAnimatedImageStreamCompleter extends ImageStreamCompleter {
     if (!hasListeners) {
       _timer?.cancel();
       _timer = null;
+      // 动图帧不计入 ImageCache 预算(只按首帧计费),滚出视野后若仍
+      // 留着全部已转换帧,几张表情包就能「隐形」占用几十 MB 纹理。
+      // 正在 emit 时不 trim:emit 结束会因无 listener 自行停表,下次
+      // 恢复从首帧开始。
+      if (!_emitting) _sequence?.trim();
     }
   }
 }

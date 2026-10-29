@@ -157,6 +157,16 @@ class TopicCardLayout {
   /// 环境级失效(主题/字号变化时可由页面调用;逐卡 stamp 也会兜住)
   static void evictAll() => _cache.clear();
 
+  static int get cacheLength => _cache.length;
+
+  /// 内存压力 / 进后台:只丢缓存索引,不 dispose 段落。
+  ///
+  /// 在屏 RenderObject 直接持有 layout 实例并在 paint 时 drawParagraph,
+  /// 这里 dispose 会画到已释放的原生 Paragraph(与 ParagraphLayoutCache
+  /// 同类崩溃)。只清索引,无人引用的实例由 GC finalizer 回收原生内存;
+  /// 在屏卡下次 obtain miss 重排一次(≈2ms/张)。
+  static void trim() => _cache.clear();
+
   /// 话题卡(普通 / 私信):取/建排版。命中 O(1);miss 全量排版
   /// ≈1.5~2.5ms,只发生在数据首达或环境变化后首次进屏。
   static TopicCardLayout obtain({

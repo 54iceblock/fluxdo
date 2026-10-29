@@ -136,6 +136,10 @@ class BookmarksListContent extends ConsumerWidget {
   /// (首页同款先例)。
   static final Map<String, ({Object sig, Widget item})> _itemCache = {};
 
+  /// 缓存的卡片闭包捕获着书签页 State 与书签列表；静态 Map 不随页面
+  /// 销毁，必须由宿主页面 dispose 时清空，否则离开书签页后它们一直驻留。
+  static void clearItemCache() => _itemCache.clear();
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // 话题卡自定义样式:改设置触发 rebuild(自绘排版直读全局快照,
