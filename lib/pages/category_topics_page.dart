@@ -170,6 +170,8 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
     final wholeWord = prefs.topicFilterWholeWord;
     final blockedUsernames = prefs.normalizedBlockedUsernames;
     final blockedTags = prefs.normalizedBlockedTags;
+    // loadMore 期间筛选标签不变，只归一化一次（visibleItemCount 会被多次调用）
+    final exemptTags = _exemptTags;
 
     int visibleItemCount() {
       return TopicKeywordFilter.apply(
@@ -178,7 +180,7 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
         wholeWord: wholeWord,
         blockedUsernames: blockedUsernames,
         blockedTags: blockedTags,
-        exemptTags: _exemptTags,
+        exemptTags: exemptTags,
       ).visible.length;
     }
 

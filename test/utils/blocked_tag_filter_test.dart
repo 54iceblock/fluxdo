@@ -91,5 +91,47 @@ void main() {
         isTrue,
       );
     });
+
+    test('isBlockedTagNames 与 isBlockedTopic 同口径', () {
+      final blocked = BlockedTagFilter.normalizedTags(['ai']);
+      expect(BlockedTagFilter.isBlockedTagNames(['#AI '], blocked), isTrue);
+      expect(BlockedTagFilter.isBlockedTagNames(['ai-tools'], blocked), isFalse);
+      expect(BlockedTagFilter.isBlockedTagNames(const [], blocked), isFalse);
+      expect(
+        BlockedTagFilter.isBlockedTagNames(
+          ['ai'],
+          blocked,
+          exemptTags: const {'ai'},
+        ),
+        isFalse,
+      );
+    });
+
+    test('tagNamesFromPayload 兼容字符串、对象与纯 ID 三种形态', () {
+      expect(
+        BlockedTagFilter.tagNamesFromPayload(
+          [
+            'foo',
+            {'id': 2, 'name': 'Bar', 'slug': 'bar'},
+            3,
+            4,
+          ],
+          idToNames: {
+            3: {'baz'},
+          },
+        ),
+        ['foo', 'Bar', 'bar', 'baz'],
+      );
+    });
+
+    test('explicitTagsInSearchQuery 识别 tags: / tag: / # 语法', () {
+      expect(
+        BlockedTagFilter.explicitTagsInSearchQuery(
+          'rust tags:AI,Linux tag:a+b #纯水 status:open',
+        ),
+        {'ai', 'linux', 'a', 'b', '纯水'},
+      );
+      expect(BlockedTagFilter.explicitTagsInSearchQuery('hello #'), isEmpty);
+    });
   });
 }

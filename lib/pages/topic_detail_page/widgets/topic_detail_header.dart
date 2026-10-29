@@ -20,6 +20,7 @@ import '../../../widgets/common/topic_badges.dart';
 import '../../category_topics_page.dart';
 import '../../tag_topics_page.dart';
 import '../../../widgets/topic/assign_sheet.dart';
+import '../../../widgets/topic/local_tag_block_actions.dart';
 
 /// 话题详情页头部组件
 class TopicDetailHeader extends ConsumerWidget {
@@ -178,6 +179,8 @@ class TopicDetailHeader extends ConsumerWidget {
                   ...detail.tags!.map(
                     (tag) => TagBadge(
                       name: tag.name,
+                      onLongPress: () =>
+                          showLocalTagBlockSheet(context, ref, tag.name),
                       onTap: () {
                         final workspace = HomeWorkspaceScope.maybeOf(context);
                         if (workspace != null) {

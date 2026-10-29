@@ -4,12 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/s.dart';
 import '../../settings/definitions/preferences_defs.dart';
+import '../../utils/dialog_utils.dart';
 
 /// 话题列表顶部的「本地内容过滤」提示。
 ///
 /// 仅在有话题被隐藏时显示。整行可点击，按本次隐藏的实际来源打开对应
-/// 管理入口：本次隐藏全部来自屏蔽名单时打开名单，全部来自屏蔽标签时打开
-/// 标签名单，其余情况（纯关键词或混合来源）打开关键词编辑。
+/// 管理入口：单一来源直达对应名单 / 关键词编辑；多个来源同时命中时弹出
+/// 分来源菜单（各来源隐藏数），见 [resolveFilterHintSource]。
 /// 形态与 `_buildNewTopicIndicator` 保持一致（同样的胶囊容器、margin、圆角），
 /// 但使用 surfaceVariant 系颜色而非 primaryContainer，刻意做成次要状态层级，
 /// 与新话题 CTA 堆叠时形成「主操作 + 次要状态」的视觉层次。
@@ -35,9 +36,11 @@ class KeywordFilterHintBar extends ConsumerWidget {
     final theme = Theme.of(context);
     final l10n = context.l10n;
     final mutedColor = theme.colorScheme.onSurfaceVariant;
-    // 单一来源才跳对应管理页；混合来源时管理关键词（三种过滤共用同一入口组）
-    final onlyBlocked = hiddenByBlocked >= hiddenCount;
-    final onlyTag = !onlyBlocked && hiddenByTag >= hiddenCount;
+    final source = resolveFilterHintSource(
+      hiddenCount: hiddenCount,
+      hiddenByBlocked: hiddenByBlocked,
+      hiddenByTag: hiddenByTag,
+    );
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -47,12 +50,15 @@ class KeywordFilterHintBar extends ConsumerWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
           onTap: () {
-            if (onlyBlocked) {
-              showBlockedUsernamesDialog(context, ref);
-            } else if (onlyTag) {
-              showBlockedTagsDialog(context, ref);
-            } else {
-              showTopicFilterKeywordsDialog(context, ref);
+            switch (source) {
+              case FilterHintSource.blockedUsers:
+                showBlockedUsernamesDialog(context, ref);
+              case FilterHintSource.blockedTags:
+                showBlockedTagsDialog(context, ref);
+              case FilterHintSource.keywords:
+                showTopicFilterKeywordsDialog(context, ref);
+              case FilterHintSource.mixed:
+                _showSourceMenu(context, ref);
             }
           },
           child: Padding(
@@ -96,4 +102,88 @@ class KeywordFilterHintBar extends ConsumerWidget {
       ),
     );
   }
+
+  /// 混合来源：列出每个有命中的来源及其隐藏数，点哪项开哪个管理入口。
+  Future<void> _showSourceMenu(BuildContext context, WidgetRef ref) async {
+    final l10n = context.l10n;
+    final hiddenByKeyword = hiddenCount - hiddenByBlocked - hiddenByTag;
+    final entries = <(IconData, String, int, FilterHintSource)>[
+      if (hiddenByKeyword > 0)
+        (
+          Symbols.filter_alt_off_rounded,
+          l10n.preferences_topicFilterKeywords,
+          hiddenByKeyword,
+          FilterHintSource.keywords,
+        ),
+      if (hiddenByBlocked > 0)
+        (
+          Symbols.person_off_rounded,
+          l10n.preferences_blockedUsernames,
+          hiddenByBlocked,
+          FilterHintSource.blockedUsers,
+        ),
+      if (hiddenByTag > 0)
+        (
+          Symbols.label_off_rounded,
+          l10n.preferences_blockedTags,
+          hiddenByTag,
+          FilterHintSource.blockedTags,
+        ),
+    ];
+    final picked = await showAppBottomSheet<FilterHintSource>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+              child: Text(
+                l10n.topic_keywordFilter_hiddenCount(hiddenCount),
+                style: Theme.of(sheetContext).textTheme.titleMedium,
+              ),
+            ),
+            for (final (icon, title, count, value) in entries)
+              ListTile(
+                leading: Icon(icon),
+                title: Text(title),
+                trailing: Text('$count'),
+                onTap: () => Navigator.of(sheetContext).pop(value),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+    switch (picked) {
+      case FilterHintSource.blockedUsers:
+        await showBlockedUsernamesDialog(context, ref);
+      case FilterHintSource.blockedTags:
+        await showBlockedTagsDialog(context, ref);
+      case FilterHintSource.keywords:
+      case FilterHintSource.mixed:
+        await showTopicFilterKeywordsDialog(context, ref);
+    }
+  }
+}
+
+/// 提示条点击后应打开的管理入口
+enum FilterHintSource { keywords, blockedUsers, blockedTags, mixed }
+
+/// 按本次隐藏的来源决定入口：单一来源直达对应管理页，多来源弹分来源菜单。
+FilterHintSource resolveFilterHintSource({
+  required int hiddenCount,
+  required int hiddenByBlocked,
+  required int hiddenByTag,
+}) {
+  final hiddenByKeyword = hiddenCount - hiddenByBlocked - hiddenByTag;
+  final sources = (hiddenByKeyword > 0 ? 1 : 0) +
+      (hiddenByBlocked > 0 ? 1 : 0) +
+      (hiddenByTag > 0 ? 1 : 0);
+  if (sources > 1) return FilterHintSource.mixed;
+  if (hiddenByBlocked > 0) return FilterHintSource.blockedUsers;
+  if (hiddenByTag > 0) return FilterHintSource.blockedTags;
+  return FilterHintSource.keywords;
 }

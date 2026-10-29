@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../models/topic.dart';
 import '../providers/message_bus/topic_list_events.dart';
 import '../providers/topic_list/filter_provider.dart';
+import 'blocked_tag_filter.dart';
 
 class TopicListUpdateQuery {
   TopicListUpdateQuery({
@@ -90,21 +91,55 @@ class TopicListUpdates {
     }
   }
 
-  bool add(TopicListEvent event) {
-    if (!(query?.accepts(event.type) ?? false)) return false;
+  /// 登记一条新话题 / 未读事件。
+  ///
+  /// [blockedTags] 为本地屏蔽标签（已归一化）：命中的事件直接丢弃，不进
+  /// 队列，避免「有 N 条新话题」点开后全被列表过滤掉。名单之后再变化时由
+  /// [snapshot] 的同名参数兜底。
+  bool add(
+    TopicListEvent event, {
+    Set<String> blockedTags = const <String>{},
+  }) {
+    final current = query;
+    if (!(current?.accepts(event.type) ?? false)) return false;
+    if (_isLocallyBlocked(event, current!, blockedTags)) return false;
     _pending[event.topicId] = (event: event, revision: ++_revision);
     return true;
   }
 
-  Map<int, int> snapshot(Map<int, int?> categoryParents) {
+  Map<int, int> snapshot(
+    Map<int, int?> categoryParents, {
+    Set<String> blockedTags = const <String>{},
+  }) {
     final current = query;
     if (current == null) return {};
     return {
       for (final entry in _pending.entries)
-        if (_matches(entry.value.event, current, categoryParents))
+        if (_matches(entry.value.event, current, categoryParents) &&
+            !_isLocallyBlocked(entry.value.event, current, blockedTags))
           entry.key: entry.value.revision,
     };
   }
+
+  /// 本地屏蔽标签判定；豁免当前列表显式筛选的标签（与列表过滤口径一致）。
+  bool _isLocallyBlocked(
+    TopicListEvent event,
+    TopicListUpdateQuery query,
+    Set<String> blockedTags,
+  ) {
+    if (blockedTags.isEmpty || event.tags.isEmpty) return false;
+    return BlockedTagFilter.isBlockedTagNames(
+      _eventTagNames(event),
+      blockedTags,
+      exemptTags: BlockedTagFilter.normalizedTags(query.tags),
+    );
+  }
+
+  Set<String> _eventTagNames(TopicListEvent event) =>
+      BlockedTagFilter.tagNamesFromPayload(
+        event.tags,
+        idToNames: _tagNames,
+      ).toSet();
 
   bool _matches(
     TopicListEvent event,
@@ -116,17 +151,8 @@ class TopicListUpdates {
         categoryParents[event.categoryId] != query.categoryId) {
       return false;
     }
-    final names = <String>{};
-    for (final tag in event.tags) {
-      if (tag is String) names.add(tag);
-      final id = tag is int ? tag : (tag is Map ? tag['id'] : null);
-      if (id is int) names.addAll(_tagNames[id] ?? const {});
-      if (tag is Map) {
-        if (tag['name'] is String) names.add(tag['name'] as String);
-        if (tag['slug'] is String) names.add(tag['slug'] as String);
-      }
-    }
     if (query.tags.isEmpty) return true;
+    final names = _eventTagNames(event);
     // 分类接口默认 OR；纯标签多选请求使用 match_all_tags=true。
     return query.categoryId == null
         ? query.tags.every(names.contains)

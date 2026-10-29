@@ -26,6 +26,7 @@ import '../l10n/s.dart';
 import 'user_profile_page.dart';
 import '../utils/dialog_utils.dart';
 import '../utils/load_more_coordinator.dart';
+import '../utils/blocked_tag_filter.dart';
 import '../utils/blocked_user_filter.dart';
 import '../utils/discourse_url_parser.dart';
 import '../widgets/common/search_capsule.dart';
@@ -1125,12 +1126,29 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     final blockedUsernames = ref.watch(
       preferencesProvider.select((p) => p.normalizedBlockedUsernames),
     );
+    final blockedTags = ref.watch(
+      preferencesProvider.select((p) => p.normalizedBlockedTags),
+    );
+    // 显式按标签搜索（筛选面板选中或搜索词里写了 tags:/#）时豁免这些标签，
+    // 口径与列表页「显式按标签筛选时豁免」一致
+    final exemptTags = blockedTags.isEmpty
+        ? const <String>{}
+        : {
+            ...BlockedTagFilter.normalizedTags(_filter.tags),
+            ...BlockedTagFilter.explicitTagsInSearchQuery(_currentQuery),
+          };
     final posts = _allPosts
         .where(
-          (post) => !BlockedUserFilter.isBlockedUsername(
-            post.username,
-            blockedUsernames,
-          ),
+          (post) =>
+              !BlockedUserFilter.isBlockedUsername(
+                post.username,
+                blockedUsernames,
+              ) &&
+              !BlockedTagFilter.isBlockedTagNames(
+                post.topic?.tags.map((tag) => tag.name) ?? const <String>[],
+                blockedTags,
+                exemptTags: exemptTags,
+              ),
         )
         .toList(growable: false);
     final users = _allUsers

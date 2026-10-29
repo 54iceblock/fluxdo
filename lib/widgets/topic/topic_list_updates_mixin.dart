@@ -4,6 +4,7 @@ import '../../models/topic.dart';
 import '../../providers/category_provider.dart';
 import '../../providers/message_bus/topic_list_events.dart';
 import '../../providers/message_bus/topic_tracking_providers.dart';
+import '../../providers/preferences_provider.dart';
 import '../../services/app_error_handler.dart';
 import '../../services/preloaded_data_service.dart';
 import '../../utils/topic_list_updates.dart';
@@ -21,10 +22,18 @@ mixin TopicListUpdatesMixin<T extends ConsumerStatefulWidget>
   bool get isLoadingTopicUpdates =>
       _loadingUpdatesGeneration == topicUpdates.generation;
 
-  Map<int, int> get topicUpdateSnapshot => topicUpdates.snapshot({
-    for (final category in (ref.read(categoryMapProvider).value ?? {}).values)
-      category.id: category.parentCategoryId,
-  });
+  /// 本地屏蔽标签（已归一化）：「有 N 条新话题」不计入命中的话题
+  Set<String> get _blockedTags =>
+      ref.read(preferencesProvider).normalizedBlockedTags;
+
+  Map<int, int> get topicUpdateSnapshot => topicUpdates.snapshot(
+    {
+      for (final category
+          in (ref.read(categoryMapProvider).value ?? {}).values)
+        category.id: category.parentCategoryId,
+    },
+    blockedTags: _blockedTags,
+  );
 
   void watchTopicUpdates(
     TopicListUpdateQuery query, {
@@ -34,10 +43,13 @@ mixin TopicListUpdatesMixin<T extends ConsumerStatefulWidget>
     topicUpdates.rememberTags(tags);
     ref.watch(messageBusInitProvider);
     ref.watch(categoryMapProvider);
+    // 名单变化时重算新话题计数
+    ref.watch(preferencesProvider.select((p) => p.normalizedBlockedTags));
     ref.listen(topicListEventsProvider, (_, event) {
       if (event == null) return;
       final before = topicUpdateSnapshot.length;
-      if (topicUpdates.add(event) && topicUpdateSnapshot.length != before) {
+      if (topicUpdates.add(event, blockedTags: _blockedTags) &&
+          topicUpdateSnapshot.length != before) {
         setState(() {});
       }
     });

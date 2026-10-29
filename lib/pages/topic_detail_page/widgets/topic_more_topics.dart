@@ -8,6 +8,7 @@ import '../../../models/topic.dart';
 import '../../../providers/category_provider.dart';
 import '../../../providers/preferences_provider.dart';
 import '../../../providers/selected_topic_provider.dart';
+import '../../../utils/blocked_tag_filter.dart';
 import '../../../utils/number_utils.dart';
 import '../../../utils/time_utils.dart';
 import '../../../widgets/common/category_tags_line.dart';
@@ -48,8 +49,21 @@ class _MoreTopicsSectionState extends ConsumerState<MoreTopicsSection> {
     final detail = widget.detail;
     if (detail.isPrivateMessage) return const SizedBox.shrink();
 
-    final related = detail.relatedTopics;
-    final suggested = detail.suggestedTopics;
+    // 本地屏蔽标签：推荐区没有提示条，被挡的条目直接不画。
+    // 豁免当前话题自身的标签——正在读的话题带着它，说明此刻愿意看这类内容。
+    final blockedTags = ref.watch(
+      preferencesProvider.select((p) => p.normalizedBlockedTags),
+    );
+    final related = filterMoreTopicsByBlockedTags(
+      detail.relatedTopics,
+      blockedTags,
+      currentTopicTags: detail.tags,
+    );
+    final suggested = filterMoreTopicsByBlockedTags(
+      detail.suggestedTopics,
+      blockedTags,
+      currentTopicTags: detail.tags,
+    );
     if (related.isEmpty && suggested.isEmpty) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
@@ -130,6 +144,32 @@ class _MoreTopicsSectionState extends ConsumerState<MoreTopicsSection> {
       ],
     );
   }
+}
+
+/// 按本地屏蔽标签过滤推荐 / 相关话题。
+///
+/// [currentTopicTags] 为正在阅读的话题自身标签，作为豁免集合；
+/// 无屏蔽名单时原样返回同一 List 实例。推荐接口返回的话题缺 `tags` 时
+/// 不屏蔽（漏放不误杀）。
+List<Topic> filterMoreTopicsByBlockedTags(
+  List<Topic> topics,
+  Set<String> blockedTags, {
+  List<Tag>? currentTopicTags,
+}) {
+  if (blockedTags.isEmpty || topics.isEmpty) return topics;
+  final exempt = BlockedTagFilter.normalizedTags(
+    (currentTopicTags ?? const <Tag>[]).map((tag) => tag.name),
+  );
+  return topics
+      .where(
+        (topic) =>
+            !BlockedTagFilter.isBlockedTopic(
+              topic,
+              blockedTags,
+              exemptTags: exempt,
+            ),
+      )
+      .toList(growable: false);
 }
 
 /// 分页签 pill

@@ -25,7 +25,7 @@ import 'search_page.dart';
 import '../models/search_filter.dart';
 import 'package:dio/dio.dart';
 import '../services/app_error_handler.dart';
-import '../services/toast_service.dart';
+import '../widgets/topic/local_tag_block_actions.dart';
 import '../l10n/s.dart';
 import '../widgets/desktop_refresh_indicator.dart';
 import '../widgets/layout/master_detail_layout.dart';
@@ -376,18 +376,12 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
   ///
   /// 本页豁免自身标签，所以切换后本页内容不变；用 Toast 说明「已在其它
   /// 话题列表中隐藏」，避免用户以为没生效。
-  Future<void> _toggleLocalBlock(bool wasBlocked) async {
-    await ref
-        .read(preferencesProvider.notifier)
-        .toggleBlockedTag(widget.tagName);
-    if (!mounted) return;
-    final l10n = context.l10n;
-    ToastService.showInfo(
-      wasBlocked
-          ? l10n.tag_localUnblocked(widget.tagName)
-          : l10n.tag_localBlocked(widget.tagName),
-    );
-  }
+  Future<void> _toggleLocalBlock(bool wasBlocked) => toggleLocalTagBlock(
+    ref,
+    context,
+    widget.tagName,
+    wasBlocked: wasBlocked,
+  );
 
   Future<void> _openTopic(Topic topic) async {
     // 树形视图从完整话题开始，续读楼层只用于平铺视图。

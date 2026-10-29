@@ -36,6 +36,9 @@ class TagBadge extends StatelessWidget {
   final Border? border;
   final VoidCallback? onTap;
 
+  /// 长按回调（如话题详情头部的「本地屏蔽此标签」快捷菜单）
+  final VoidCallback? onLongPress;
+
   const TagBadge({
     super.key,
     required this.name,
@@ -44,6 +47,7 @@ class TagBadge extends StatelessWidget {
     this.backgroundColor,
     this.border,
     this.onTap,
+    this.onLongPress,
   });
 
   @override
@@ -79,8 +83,12 @@ class TagBadge extends StatelessWidget {
       ),
     );
 
-    if (onTap != null) {
-      return GestureDetector(onTap: onTap, child: badge);
+    if (onTap != null || onLongPress != null) {
+      return GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: badge,
+      );
     }
     return badge;
   }

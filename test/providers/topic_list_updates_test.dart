@@ -224,6 +224,45 @@ void main() {
       expect(queue.snapshot({}).keys, [1]);
     });
 
+    test('本地屏蔽标签：命中的事件不入队，名单后改也会从计数中排除', () {
+      final queue = TopicListUpdates()
+        ..configure(TopicListUpdateQuery(filter: TopicListFilter.latest))
+        ..rememberTags([const Tag(id: 7, name: '纯水')]);
+      const blocked = {'纯水'};
+      expect(
+        queue.add(
+          const TopicListEvent(topicId: 1, type: 'latest', tags: ['纯水']),
+          blockedTags: blocked,
+        ),
+        isFalse,
+      );
+      queue.add(
+        const TopicListEvent(
+          topicId: 2,
+          type: 'latest',
+          tags: [
+            {'id': 7},
+          ],
+        ),
+      );
+      queue.add(const TopicListEvent(topicId: 3, type: 'latest'));
+      expect(queue.snapshot({}).keys, [2, 3]);
+      // 入队后才加进名单：计数照样排除（纯 ID 通过 rememberTags 还原）
+      expect(queue.snapshot({}, blockedTags: blocked).keys, [3]);
+    });
+
+    test('本地屏蔽标签：列表显式筛选的标签豁免', () {
+      final queue = TopicListUpdates()
+        ..configure(
+          TopicListUpdateQuery(filter: TopicListFilter.latest, tags: ['ai']),
+        );
+      queue.add(
+        const TopicListEvent(topicId: 1, type: 'latest', tags: ['ai']),
+        blockedTags: const {'ai'},
+      );
+      expect(queue.snapshot({}, blockedTags: const {'ai'}).keys, [1]);
+    });
+
     test('消费快照保留请求期间同话题的新消息，其他列表不受影响', () {
       final a = TopicListUpdates()
         ..configure(TopicListUpdateQuery(filter: TopicListFilter.latest));
