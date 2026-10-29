@@ -74,13 +74,64 @@ Future<void> _testAll(
   }
 
   final testTasks = _buildWorkspaceTestTasks(args);
+  final environment = await _flutterTestEnvironment();
   for (final task in testTasks) {
-    await runFlutterOrExit(
+    await runOrExit(
       title: '执行 ${task.label} flutter test',
+      executable: flutterExecutable,
       arguments: task.arguments,
       workingDirectory: task.workingDirectory,
+      environment: environment,
     );
   }
+}
+
+/// flutter test 宿主进程的环境变量。
+///
+/// Windows 下 flutter_js 在 `FLUTTER_TEST=true` 时直接
+/// `DynamicLibrary.open('quickjs_c_bridge.dll')`，靠 DLL 搜索路径找文件；
+/// `flutter test` 不会像 `flutter run` 那样把插件 DLL 拷到可执行文件旁，
+/// 不补 PATH 时 DiscourseCook 初始化失败，编辑器相关用例整批挂掉。
+Future<Map<String, String>> _flutterTestEnvironment() async {
+  final environment = await androidBuildEnvironment();
+  if (!Platform.isWindows) return environment;
+  final dllDir = _flutterJsWindowsDllDir();
+  if (dllDir == null) {
+    stderr.writeln('警告：未找到 flutter_js 的 quickjs_c_bridge.dll，编辑器相关测试可能失败');
+    return environment;
+  }
+  final pathKey = environment.keys.firstWhere(
+    (key) => key.toLowerCase() == 'path',
+    orElse: () => 'Path',
+  );
+  final current = environment[pathKey] ?? '';
+  environment[pathKey] = current.isEmpty ? dllDir : '$dllDir;$current';
+  return environment;
+}
+
+/// 从 package_config.json 定位 flutter_js 包内的 `windows/shared` 目录。
+String? _flutterJsWindowsDllDir() {
+  final configFile = File('.dart_tool/package_config.json');
+  if (!configFile.existsSync()) return null;
+  try {
+    final config =
+        jsonDecode(configFile.readAsStringSync()) as Map<String, dynamic>;
+    for (final package in config['packages'] as List<dynamic>) {
+      final entry = package as Map<String, dynamic>;
+      if (entry['name'] != 'flutter_js') continue;
+      final root = configFile.parent.uri.resolve(
+        (entry['rootUri'] as String).endsWith('/')
+            ? entry['rootUri'] as String
+            : '${entry['rootUri']}/',
+      );
+      final dir = Directory.fromUri(root.resolve('windows/shared/'));
+      final dll = File('${dir.path}quickjs_c_bridge.dll');
+      return dll.existsSync() ? dir.absolute.path : null;
+    }
+  } on FormatException {
+    return null;
+  }
+  return null;
 }
 
 Future<void> _nativePrepare(List<String> args) async {

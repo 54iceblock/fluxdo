@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path/path.dart' as p;
 
 import '../../constants.dart';
 import '../app_logger.dart';
@@ -39,7 +40,8 @@ class LoggerUtils {
       stage = 'resolveLogDirectory';
       final logFile = await getLogFile();
       final dir = logFile.parent;
-      final shareFile = File('${dir.path}/app_log_share.jsonl');
+      // 用 p.join：Windows 下手拼 '/' 会得到混合分隔符的路径
+      final shareFile = File(p.join(dir.path, 'app_log_share.jsonl'));
       sharePath = shareFile.path;
       stage = 'writeExportFile';
       await shareFile.writeAsString('$header$logContent');

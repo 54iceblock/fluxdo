@@ -210,7 +210,15 @@ void main() {
           ),
         ),
       );
-      addTearDown(() => directory.delete(recursive: true));
+      // Windows 下上传流程（图片解码 / 上传任务）可能在 tearDown 时仍持有
+      // 文件句柄，删除会抛 errno 32；临时目录清理失败不应判定用例失败。
+      addTearDown(() async {
+        try {
+          await directory.delete(recursive: true);
+        } on FileSystemException {
+          if (!Platform.isWindows) rethrow;
+        }
+      });
       const picker = MethodChannel('plugins.flutter.io/image_picker');
       var picked = 0;
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(picker, (

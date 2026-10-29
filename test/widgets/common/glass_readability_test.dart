@@ -30,7 +30,8 @@ void main() {
             child: Column(
               children: [
                 ComposerIsland(
-                  expanded: expanded,
+                  // 端点 0/1 时 GlassRecipe.lerp 原样返回 toolbar / sheet
+                  expansion: expanded ? 1 : 0,
                   child: TextField(focusNode: focus),
                 ),
                 const ComposerObjectSurface(

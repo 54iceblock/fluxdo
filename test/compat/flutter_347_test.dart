@@ -27,11 +27,8 @@ void main() {
         child: MaterialApp(
           navigatorKey: navigatorKey,
           home: Scaffold(
-            body: ComposerExpandedTools(
-              anchor: anchor,
-              animation: const AlwaysStoppedAnimation(1),
-              flyingIds: const {},
-            ),
+            // 面板重构后不再接收 animation / flyingIds，展开进度由 anchor 驱动
+            body: ComposerExpandedTools(anchor: anchor),
           ),
         ),
       ),

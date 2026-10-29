@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 // 使用项目真实 bundle，所有调用数据由测试构造。
+//
+// Node 的 stdout 恒为 UTF-8；Process.run 默认按系统代码页解码，
+// 在中文 Windows（GBK）下会把中文输出解成乱码，必须显式指定 utf8。
 Future<Map<String, dynamic>> parseWithNode(
   String raw, {
   bool footnotes = false,
@@ -29,7 +32,7 @@ process.stdout.write(__fluxdoCook.parseForEditor(JSON.parse(process.argv[1])));
 ''',
     jsonEncode(raw),
     jsonEncode(siteSettings),
-  ]);
+  ], stdoutEncoding: utf8, stderrEncoding: utf8);
   if (result.exitCode != 0) throw StateError('${result.stderr}');
   return jsonDecode(result.stdout as String) as Map<String, dynamic>;
 }
@@ -61,7 +64,7 @@ process.stdout.write(__fluxdoCook.cook(JSON.parse(process.argv[1])));
 ''',
     jsonEncode(raw),
     jsonEncode(siteSettings),
-  ]);
+  ], stdoutEncoding: utf8, stderrEncoding: utf8);
   if (result.exitCode != 0) throw StateError('${result.stderr}');
   return result.stdout as String;
 }
