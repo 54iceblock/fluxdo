@@ -7,6 +7,20 @@
 
 FluxDO 是为 [Linux.do](https://linux.do/) 社区打造的现代化移动和桌面客户端，基于 Flutter 开发，致力于为用户提供流畅、优雅的论坛浏览体验。
 
+## HarmonyOS 版（第三方移植，实验性）
+
+本仓库的 [`ohos-port`](https://github.com/54iceblock/fluxdo/tree/ohos-port) 分支是 FluxDO 的 **HarmonyOS 移植版**：同一套 Flutter / Dart 代码，跑在 Flutter 的 OHOS 引擎上，另外交叉编译了 4 个原生库（上游网络核心 `fluxdo_net`、原生动图解码、AVIF、QuickJS）。
+
+| 项 | 现状 |
+|---|---|
+| 目标系统 | **HarmonyOS 7（API 26）**，暂不支持 HarmonyOS 5 / 6 |
+| 形态 | Release 提供未签名 HAP，需用自己的华为账号签名后侧载，**未上架华为应用市场** |
+| 构建 | 见 [`ohos/tools/README.md`](ohos/tools/README.md)：改两行路径 → 构建 → 签名 + `hdc install` |
+| 下载 | [Releases](https://github.com/54iceblock/fluxdo/releases) 中以 `ohos-v` 开头的版本 |
+| 已知限制 | 后台不轮询通知、剪贴板读富文本降级为纯文本、应用内更新改为跳转发布页、小程序不提供独立窗口 |
+
+> 该分支由社区维护，不是上游官方发布；功能设计与上游保持一致，问题优先提 Issue。
+
 ## 下载
 
 <a href="https://github.com/lingyan000/fluxdo/releases"><img alt="Get it on GitHub" src="https://img.shields.io/github/v/release/lingyan000/fluxdo?style=for-the-badge&logo=github&label=GitHub%20Releases" /></a>
