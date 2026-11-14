@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../constants.dart';
 import '../../../utils/platform_utils.dart';
+import '../../network_logger.dart';
 
 /// WebView 适配器设置服务
 ///
@@ -20,29 +21,24 @@ class WebViewAdapterSettingsService {
 
   static const _enabledKey = 'webview_adapter_enabled';
 
-  /// HarmonyOS 上强制把主站请求交给 WebView（ArkWeb）网络栈的总开关。
+  static const _ohosForceTransportKey = 'ohos_force_webview_transport';
+
+  /// HarmonyOS 上当前会话是否强制把主站请求交给 WebView（ArkWeb）网络栈。
   ///
-  /// 背景：linux.do 前置的 Cloudflare 会挑战所有非浏览器客户端（实测宿主机
-  /// Node 直连 `403 + cf-mitigated: challenge`）。OHOS 上原生 dart:io 栈永远
-  /// 拿不到 HttpOnly 的 cf_clearance —— ArkWeb 只暴露
-  /// `WebCookieManager.fetchCookieSync(url)`（只回 Cookie 头、不回属性），
-  /// 原生侧没有任何等价能力。要稳定访问只能让请求由 ArkWeb 自己发出。
+  /// 这是「会话值」：启动时取自用户持久化设置（[ohosForcePersistentNotifier]，
+  /// 默认 false，即主站请求走网络核心），用户切换设置时同步更新；
+  /// 运行时 12 秒超时自动回退会通过 [applyOhosForceTransport] 临时置为 false，
+  /// 该回退只影响当前会话，不写入持久化设置。
   ///
-  /// 默认 `true`（2026-10-21 第 5 轮）：实测「dio 先请求 → 403 → 弹验证浮层」
-  /// 这条路径虽然最终能出数据，但模拟器环境里浮层不会自动关闭，用户必须手动
-  /// 「退出 → 重试连接」两步。而第 4 轮已把 `WebViewHttpAdapter` 的引导页
-  /// 回退为可用的 `loadData(空壳, baseUrl:linux.do)`（第 3 轮挂死的是
-  /// robots.txt 真实导航版本，已回退），所以让主站请求从第一个起就走 WebView
-  /// 栈是安全的：冷启动首个请求直接由 ArkWeb 带 cookie 发出，只要 ArkWeb 里
-  /// 已有/能拿到 cf_clearance 就直接出数据，不再依赖验证浮层。
+  /// 背景：rhttp 时代鸿蒙没有带指纹的原生栈，linux.do 前置的 Cloudflare 会挑战
+  /// 非浏览器客户端，因此曾写死为 true 让 ArkWeb 代发。现在网络核心可用，
+  /// 默认改走核心，旧方案保留为用户可切换的对比开关。
+  static bool forceWebViewTransportOnOhos = false;
+
+  /// 用户持久化的「鸿蒙主站请求走浏览器内核」开关，默认 false。
   ///
-  /// 安全网：拦截器里的浏览器栈重放有 12s 硬超时
-  /// （`_browserStackReplayTimeout`），超时/失败会自动回退到验证流程或错误
-  /// 处理，不会把冷启动吊死。
-  ///
-  /// 该开关不写 SharedPreferences：设置页仍然只显示用户自己的持久化开关，
-  /// 避免把「平台兜底」误显示成用户主动修改的设置。
-  static bool forceWebViewTransportOnOhos = true;
+  /// 设置页只监听这个 notifier，避免把超时回退造成的会话值显示成用户选择。
+  final ValueNotifier<bool> ohosForcePersistentNotifier = ValueNotifier(false);
 
   /// 用户持久化的兼容模式开关。
   ///
@@ -68,7 +64,10 @@ class WebViewAdapterSettingsService {
   /// 当前会话是否因 CF 恢复流程临时启用了兼容模式。
   bool get sessionFallbackEnabled => sessionFallbackNotifier.value;
 
-  /// OHOS 平台兜底是否正在强制使用浏览器网络栈。
+  /// 用户持久化的 OHOS 强制浏览器网络栈选择。
+  bool get ohosForcePersistent => ohosForcePersistentNotifier.value;
+
+  /// OHOS 当前会话是否正在强制使用浏览器网络栈。
   bool get ohosForceTransportEnabled =>
       forceWebViewTransportOnOhos && PlatformUtils.isOhos;
 
@@ -79,10 +78,28 @@ class WebViewAdapterSettingsService {
     if (_prefs != null) return;
     _prefs = prefs;
     notifier.value = prefs.getBool(_enabledKey) ?? false;
+    ohosForcePersistentNotifier.value =
+        prefs.getBool(_ohosForceTransportKey) ?? false;
+    // 会话值以持久化设置为起点
+    forceWebViewTransportOnOhos = ohosForcePersistentNotifier.value;
     _syncEffectiveEnabled();
   }
 
-  /// 运行时切换 OHOS 平台强制开关（会立即重算 effectiveEnabled）。
+  /// 用户在设置页切换 OHOS「主站请求走浏览器内核」：写入持久化并立即生效。
+  ///
+  /// 会话值同步为用户选择（包括覆盖此前超时回退造成的临时 false）。
+  Future<void> setOhosForceTransport(bool value) async {
+    final prefs = _prefs;
+    if (prefs == null) return;
+    ohosForcePersistentNotifier.value = value;
+    forceWebViewTransportOnOhos = value;
+    _syncEffectiveEnabled();
+    await prefs.setBool(_ohosForceTransportKey, value);
+  }
+
+  /// 运行时临时切换 OHOS 会话强制开关（会立即重算 effectiveEnabled）。
+  ///
+  /// 只改会话值，不写入持久化设置；超时自动回退走这里。
   void applyOhosForceTransport(bool value) {
     if (forceWebViewTransportOnOhos == value) {
       _syncEffectiveEnabled();
@@ -90,9 +107,11 @@ class WebViewAdapterSettingsService {
     }
     forceWebViewTransportOnOhos = value;
     _syncEffectiveEnabled();
-    debugPrint(
-      '[WebViewAdapter][OHOS] 平台强制浏览器网络栈 = $value '
-      '(effective=${effectiveNotifier.value})',
+    // release 下 debugPrint 被置空，改走 NetworkLogger 落盘到应用日志
+    NetworkLogger.log(
+      '[WebViewAdapter][OHOS] 会话强制浏览器网络栈 = $value '
+      '(persistent=${ohosForcePersistentNotifier.value}, '
+      'effective=${effectiveNotifier.value})',
     );
   }
 
@@ -155,6 +174,7 @@ class WebViewAdapterSettingsService {
     notifier.value = false;
     sessionFallbackNotifier.value = false;
     effectiveNotifier.value = false;
+    ohosForcePersistentNotifier.value = false;
     forceWebViewTransportOnOhos = false;
   }
 }

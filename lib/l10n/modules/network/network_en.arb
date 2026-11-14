@@ -88,6 +88,8 @@
   "networkSettings_upload": "File uploads",
   "networkSettings_forceDisableMultipart": "Force disable multipart uploads",
   "networkSettings_forceDisableMultipartDescription": "Use standard uploads for all files regardless of site settings. Enable if multipart uploads are failing. Applies to the next upload.",
+  "networkSettings_ohosForceWebView": "Route main-site requests via browser engine",
+  "networkSettings_ohosForceWebViewDescription": "When on, linux.do API requests are sent by the system WebView (legacy approach: more reliable against Cloudflare but slower). When off, the network core connects directly.",
   "fingerprintPreset_title": "Fingerprint template",
   "fingerprintPreset_auto": "Automatic",
   "fingerprintPreset_autoDescription": "Use the device’s browser sample; use a matching preset until sampling completes.",

@@ -9,7 +9,9 @@ import '../../pages/network_settings_page/widgets/eruda_card.dart';
 import '../../pages/network_settings_page/widgets/rate_limit_card.dart';
 import '../../pages/network_settings_page/widgets/vpn_auto_toggle_card.dart';
 import '../settings_model.dart';
+import '../../providers/ohos_force_transport_provider.dart';
 import '../../providers/preferences_provider.dart';
+import '../../utils/platform_utils.dart';
 
 /// 网络设置数据声明
 List<SettingsGroup> buildNetworkGroups(BuildContext context) {
@@ -48,6 +50,19 @@ List<SettingsGroup> buildNetworkGroups(BuildContext context) {
           title: l10n.cf_securityVerifyTitle,
           subtitle: l10n.networkSettings_auxiliary,
           builder: (context, ref) => const CfVerifyCard(),
+        ),
+        // 仅鸿蒙：主站请求走 ArkWeb 代发（旧方案）还是网络核心直连
+        PlatformConditionalModel(
+          condition: () => PlatformUtils.isOhos,
+          inner: SwitchModel(
+            id: 'ohosForceWebViewTransport',
+            title: l10n.networkSettings_ohosForceWebView,
+            subtitle: l10n.networkSettings_ohosForceWebViewDescription,
+            icon: Symbols.open_in_browser_rounded,
+            getValue: (ref) => ref.watch(ohosForceTransportProvider),
+            onChanged: (ref, value) =>
+                ref.read(ohosForceTransportProvider.notifier).set(value),
+          ),
         ),
       ],
     ),

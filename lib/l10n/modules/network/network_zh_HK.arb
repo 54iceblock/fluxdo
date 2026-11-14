@@ -105,6 +105,8 @@
   "networkSettings_upload": "檔案上傳",
   "networkSettings_forceDisableMultipart": "強制關閉分片上傳",
   "networkSettings_forceDisableMultipartDescription": "開啟後，所有檔案均使用一般上傳，忽略站點分片設定。伺服器分片異常時可開啟，對下一次上傳生效。",
+  "networkSettings_ohosForceWebView": "主站請求走瀏覽器內核",
+  "networkSettings_ohosForceWebViewDescription": "開啟後 linux.do 介面由系統 WebView 代發（舊方案，過 Cloudflare 更穩但更慢）；關閉則由網絡核心直連",
   "fingerprintPreset_title": "指紋範本",
   "fingerprintPreset_auto": "自動",
   "fingerprintPreset_autoDescription": "優先使用目前裝置的瀏覽器取樣，取樣完成前使用匹配的預設範本。",

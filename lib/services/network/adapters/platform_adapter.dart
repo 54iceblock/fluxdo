@@ -211,8 +211,9 @@ class _WebViewAware implements HttpClientAdapter {
       } on TimeoutException catch (e) {
         // 挂死（第 3 轮回归那种）：回退原生，并关掉本次会话的强制开关，
         // 避免后续每个请求都白等 12s。
-        debugPrint(
-          '[WebViewAdapter][OHOS] fetch 超时，回退原生并关闭强制浏览器栈: $e',
+        NetworkLogger.log(
+          '[WebViewAdapter][OHOS] fetch 超时，回退网络核心并关闭本会话强制浏览器栈: $e',
+          level: 'warning',
         );
         WebViewAdapterSettingsService.instance.applyOhosForceTransport(false);
         try {
@@ -223,7 +224,10 @@ class _WebViewAware implements HttpClientAdapter {
         return _inner.fetch(options, requestStream, cancelFuture);
       } catch (e) {
         // 其它异常（JS 报错 / 桥不可用等）：只本次回退原生，保留强制开关。
-        debugPrint('[WebViewAdapter][OHOS] fetch 失败，本次回退原生: $e');
+        NetworkLogger.log(
+          '[WebViewAdapter][OHOS] fetch 失败，本次回退网络核心: $e',
+          level: 'warning',
+        );
         return _inner.fetch(options, requestStream, cancelFuture);
       }
     }

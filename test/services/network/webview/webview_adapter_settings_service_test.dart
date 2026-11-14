@@ -67,6 +67,57 @@ void main() {
       expect(service.effectiveEnabled, false);
     });
 
+    test('OHOS 强制浏览器栈持久化默认 false，未设置时会话值也为 false', () {
+      expect(service.ohosForcePersistent, false);
+      expect(WebViewAdapterSettingsService.forceWebViewTransportOnOhos, false);
+      expect(prefs.getBool('ohos_force_webview_transport'), isNull);
+    });
+
+    test('setOhosForceTransport 写入持久化并同步会话值', () async {
+      await service.setOhosForceTransport(true);
+
+      expect(service.ohosForcePersistent, true);
+      expect(WebViewAdapterSettingsService.forceWebViewTransportOnOhos, true);
+      expect(prefs.getBool('ohos_force_webview_transport'), true);
+    });
+
+    test('initialize 以持久化值作为会话起点', () async {
+      service.resetForTest();
+      SharedPreferences.setMockInitialValues({
+        'ohos_force_webview_transport': true,
+      });
+      final p = await SharedPreferences.getInstance();
+      await service.initialize(p);
+
+      expect(service.ohosForcePersistent, true);
+      expect(WebViewAdapterSettingsService.forceWebViewTransportOnOhos, true);
+    });
+
+    test('超时回退 applyOhosForceTransport 只改会话值，不写持久化', () async {
+      await service.setOhosForceTransport(true);
+      service.applyOhosForceTransport(false);
+
+      expect(WebViewAdapterSettingsService.forceWebViewTransportOnOhos, false);
+      expect(service.ohosForcePersistent, true);
+      expect(prefs.getBool('ohos_force_webview_transport'), true);
+    });
+
+    test('用户再次切换会覆盖回退造成的会话 false', () async {
+      await service.setOhosForceTransport(true);
+      service.applyOhosForceTransport(false);
+      await service.setOhosForceTransport(true);
+
+      expect(WebViewAdapterSettingsService.forceWebViewTransportOnOhos, true);
+    });
+
+    test('resetForTest 清空 OHOS 持久化与会话值', () async {
+      await service.setOhosForceTransport(true);
+      service.resetForTest();
+
+      expect(service.ohosForcePersistent, false);
+      expect(WebViewAdapterSettingsService.forceWebViewTransportOnOhos, false);
+    });
+
     test('临时兼容仍排除 MessageBus 与非主站请求', () {
       service.enableSessionFallback();
 
