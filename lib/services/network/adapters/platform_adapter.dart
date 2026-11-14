@@ -12,6 +12,7 @@ import '../core/net_core_service.dart';
 import '../flux_request_spec.dart';
 import '../cookie/csrf_session_trace.dart';
 import '../system_proxy_service.dart';
+import '../webview/site_webview_runtime.dart';
 import '../webview/webview_adapter_settings_service.dart';
 import '../../../utils/platform_utils.dart';
 import 'adapter_log_metadata.dart';
@@ -209,13 +210,13 @@ class _WebViewAware implements HttpClientAdapter {
               ),
             );
       } on TimeoutException catch (e) {
-        // 挂死（第 3 轮回归那种）：回退原生，并关掉本次会话的强制开关，
-        // 避免后续每个请求都白等 12s。
+        // 挂死（第 3 轮回归那种）：回退原生，并暂停本会话的 WebView 适配器
+        // （含持久化兼容模式开启的情况），避免后续每个请求都白等 12s。
         NetworkLogger.log(
-          '[WebViewAdapter][OHOS] fetch 超时，回退网络核心并关闭本会话强制浏览器栈: $e',
+          '[WebViewAdapter][OHOS] fetch 超时，回退网络核心并暂停本会话 WebView 适配器: $e',
           level: 'warning',
         );
-        WebViewAdapterSettingsService.instance.applyOhosForceTransport(false);
+        WebViewAdapterSettingsService.instance.suspendOhosWebViewForSession();
         try {
           adapter.close(force: true);
         } catch (_) {}
@@ -262,6 +263,12 @@ class _WebViewAware implements HttpClientAdapter {
     // 浮层体验问题由 cf_challenge_service / cf_challenge_interceptor 的
     // 自动关闭 + 自愈轮询解决，不再改传输层优先级。
     if (!WebViewAdapterSettingsService.instance.effectiveEnabled) {
+      return false;
+    }
+    // HarmonyOS：启动 session bootstrap 在后台独占 WebView 时，适配器请求只能
+    // 排队并等到 12s 超时（真机首批请求 12.3s 后回退 core）。此期间直接走网络核心。
+    if (PlatformUtils.isOhos &&
+        SiteWebViewRuntime.instance.backgroundExclusiveBusy) {
       return false;
     }
     return requestCanUseWebViewAdapter(options);

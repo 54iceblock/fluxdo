@@ -118,6 +118,60 @@ void main() {
       expect(WebViewAdapterSettingsService.forceWebViewTransportOnOhos, false);
     });
 
+    group('OHOS ArkWeb 挂死后暂停本会话', () {
+      setUp(() => WebViewAdapterSettingsService.debugIsOhosOverride = true);
+      tearDown(() => WebViewAdapterSettingsService.debugIsOhosOverride = null);
+
+      test('持久化兼容模式开启时也会暂停，且不写持久化', () async {
+        await service.setEnabled(true);
+        expect(service.effectiveEnabled, true);
+
+        service.suspendOhosWebViewForSession();
+
+        expect(service.ohosWebViewSuspended, true);
+        expect(service.effectiveEnabled, false);
+        expect(service.persistentEnabled, true);
+        expect(prefs.getBool('webview_adapter_enabled'), true);
+        expect(
+          service.shouldUseWebView(Uri.parse('https://linux.do/latest.json')),
+          false,
+        );
+      });
+
+      test('会话兼容模式与强制浏览器栈同样被暂停', () async {
+        await service.setOhosForceTransport(true);
+        service.enableSessionFallback();
+
+        service.suspendOhosWebViewForSession();
+
+        expect(service.effectiveEnabled, false);
+        expect(WebViewAdapterSettingsService.forceWebViewTransportOnOhos, false);
+        expect(service.ohosForcePersistent, true);
+      });
+
+      test('用户重新切换任一开关即恢复', () async {
+        await service.setEnabled(true);
+        service.suspendOhosWebViewForSession();
+        await service.setEnabled(true);
+        expect(service.effectiveEnabled, true);
+
+        service.suspendOhosWebViewForSession();
+        await service.setOhosForceTransport(false);
+        expect(service.effectiveEnabled, true);
+      });
+    });
+
+    test('非 OHOS 平台不会暂停', () async {
+      WebViewAdapterSettingsService.debugIsOhosOverride = false;
+      addTearDown(() => WebViewAdapterSettingsService.debugIsOhosOverride = null);
+      await service.setEnabled(true);
+
+      service.suspendOhosWebViewForSession();
+
+      expect(service.ohosWebViewSuspended, false);
+      expect(service.effectiveEnabled, true);
+    });
+
     test('临时兼容仍排除 MessageBus 与非主站请求', () {
       service.enableSessionFallback();
 

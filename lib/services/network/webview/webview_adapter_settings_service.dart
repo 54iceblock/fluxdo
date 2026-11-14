@@ -93,9 +93,24 @@ class WebViewAdapterSettingsService {
     if (prefs == null) return;
     ohosForcePersistentNotifier.value = value;
     forceWebViewTransportOnOhos = value;
+    _ohosWebViewSuspended = false;
     _syncEffectiveEnabled();
     await prefs.setBool(_ohosForceTransportKey, value);
   }
+
+  /// HarmonyOS 当前会话是否因 ArkWeb fetch 挂死而暂停 WebView 适配器。
+  ///
+  /// 仅关闭「强制浏览器栈」不够：持久化兼容模式（[enabled]）或 CF 恢复的
+  /// 会话兼容模式仍会让 effectiveEnabled 为 true，后续每个主站请求都要先在
+  /// 卡死的 ArkWeb 上白等 12s 才回退。挂死后本会话统一暂停 WebView 适配器，
+  /// 不写入持久化；用户在设置页重新切换任一开关或重启应用即恢复。
+  bool _ohosWebViewSuspended = false;
+
+  /// 测试用：覆盖平台判断（Windows 上跑单测时模拟 HarmonyOS）。
+  @visibleForTesting
+  static bool? debugIsOhosOverride;
+
+  bool get ohosWebViewSuspended => _ohosWebViewSuspended;
 
   /// 运行时临时切换 OHOS 会话强制开关（会立即重算 effectiveEnabled）。
   ///
@@ -115,9 +130,29 @@ class WebViewAdapterSettingsService {
     );
   }
 
+  /// HarmonyOS：ArkWeb fetch 挂死后暂停本会话的 WebView 适配器（见
+  /// [ohosWebViewSuspended]），同时关闭会话强制浏览器栈。
+  void suspendOhosWebViewForSession() {
+    if (!(debugIsOhosOverride ?? PlatformUtils.isOhos)) return;
+    forceWebViewTransportOnOhos = false;
+    if (_ohosWebViewSuspended) {
+      _syncEffectiveEnabled();
+      return;
+    }
+    _ohosWebViewSuspended = true;
+    _syncEffectiveEnabled();
+    NetworkLogger.log(
+      '[WebViewAdapter][OHOS] 本会话暂停 WebView 适配器 '
+      '(persistent=${notifier.value}, '
+      'session=${sessionFallbackNotifier.value}, '
+      'effective=${effectiveNotifier.value})',
+    );
+  }
+
   Future<void> setEnabled(bool value) async {
     final prefs = _prefs;
     if (prefs == null) return;
+    _ohosWebViewSuspended = false;
     notifier.value = value;
     _syncEffectiveEnabled();
     await prefs.setBool(_enabledKey, value);
@@ -164,7 +199,8 @@ class WebViewAdapterSettingsService {
 
   void _syncEffectiveEnabled() {
     effectiveNotifier.value =
-        enabled || sessionFallbackEnabled || ohosForceTransportEnabled;
+        !_ohosWebViewSuspended &&
+        (enabled || sessionFallbackEnabled || ohosForceTransportEnabled);
   }
 
   /// 重置单例内部状态，仅用于测试，使 initialize() 可重新执行。
@@ -176,5 +212,6 @@ class WebViewAdapterSettingsService {
     effectiveNotifier.value = false;
     ohosForcePersistentNotifier.value = false;
     forceWebViewTransportOnOhos = false;
+    _ohosWebViewSuspended = false;
   }
 }

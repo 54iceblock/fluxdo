@@ -15,6 +15,7 @@ import 'discourse/discourse_service.dart';
 import 'network/cookie/boundary_sync_service.dart';
 import 'network/cookie/cookie_jar_service.dart';
 import 'network/cookie/webview_cookie_priming.dart';
+import '../utils/platform_utils.dart';
 import 'preloaded_data_service.dart';
 import 'webview_session_cookie_refresh_service.dart';
 
@@ -47,6 +48,9 @@ class BrowserTrustRunCancellation {
     _cancelledCompleter.complete();
   }
 }
+
+/// 启动预加载中 session bootstrap 的结局。
+enum _StartupBootstrapOutcome { done, timedOut, cancelled, failed }
 
 /// 超时后取消后续工作，但仍等待原任务完成 finally 清理，避免留下孤儿 WebView。
 @visibleForTesting
@@ -106,6 +110,13 @@ class BrowserTrustCoordinator {
   static const Duration _trustedClearanceMinTtl = Duration(minutes: 10);
   static const Duration _requestClearanceMinTtl = Duration(seconds: 30);
   static const Duration _webViewPreloadTimeout = Duration(seconds: 25);
+
+  /// 启动预加载里 bootstrap 的限时：脚本自身超时与整体预算（含换文档）。
+  static const Duration _startupBootstrapTimeout = Duration(seconds: 10);
+  static const Duration _startupBootstrapBudget = Duration(seconds: 14);
+
+  /// 外层超时后等待 WebView 任务清理的上限；清理卡住时不能再拖住首页。
+  static const Duration _webViewPreloadCleanupTimeout = Duration(seconds: 3);
   static const Duration _domSnapshotTimeout = Duration(seconds: 12);
   static const Duration _backgroundPauseDelay = Duration(seconds: 8);
   static const Duration _requestGateTimeout = Duration(seconds: 6);
@@ -340,6 +351,7 @@ class BrowserTrustCoordinator {
       task: hydrateTask,
       timeout: _webViewPreloadTimeout,
       cancellation: cancellation,
+      cleanupTimeout: _webViewPreloadCleanupTimeout,
     );
     if (hydrateResult == null) {
       _log('startup WebView preload timeout', level: 'warning');
@@ -568,6 +580,12 @@ class BrowserTrustCoordinator {
     ]);
     BrowserResourceLease<SiteWebView>? lease;
     const scriptGroup = 'fluxdo_startup_snapshot';
+    // 只有真正注入脚本/导航过，文档才被污染、才需要在 finally 里重置。
+    // priming 失败等“尚未动过 WebView”的早退路径若仍调用 resetDocument()，
+    // 在 OHOS 上会白等 SiteWebView.load 的 30s 上限（N15 真机冷启动 33s 的根因）。
+    var webViewTouched = false;
+    // 租约已移交给后台 bootstrap 任务时，由该任务负责清理与释放。
+    var leaseHandedOff = false;
     try {
       lease = await SiteWebViewRuntime.instance.acquire(
         exclusive: true,
@@ -578,6 +596,7 @@ class BrowserTrustCoordinator {
       if (cancellation.isCancelled || !lease.isCurrent) return false;
       final view = lease.value;
       final c = view.controller;
+      webViewTouched = true;
       await c.addUserScript(
         userScript: UserScript(
           groupName: scriptGroup,
@@ -607,35 +626,47 @@ class BrowserTrustCoordinator {
       final tToken = await _jar.getTToken();
       if (tToken != null && tToken.isNotEmpty) {
         if (cancellation.isCancelled || !lease.isCurrent) return false;
-        _log('startup WebView session bootstrap begin reason=$reason');
-        final bootstrapResult = await WebViewSessionCookieRefreshService
-            .instance
-            .runOnController(
-              c,
-              reason: '$reason:startup_webview',
-              pluginCandidates: _preload.pluginCandidatesSync,
-              isCancelled: () => cancellation.isCancelled || !lease!.isCurrent,
-              cancellationSignal: cancelled,
-            );
-        if (cancellation.isCancelled || !lease.isCurrent) return false;
-        final bootstrapped = bootstrapResult.ok;
-        await _syncCookiesFromController(c, generation);
-        if (cancellation.isCancelled || !lease.isCurrent) return false;
-        final runtimeDetails = await _jar.getCookieDiagnosticsForRequest(
-          Uri.parse(AppConstants.baseUrl),
-          names: const {'_rt'},
-        );
-        final hasRuntimeCookie = runtimeDetails.any(
-          (cookie) => (cookie['valueLength'] as int? ?? 0) > 0,
-        );
-        if (bootstrapped && hasRuntimeCookie) {
-          WebViewSessionCookieRefreshService.instance.markSynced(
-            reason: '$reason:startup_webview',
-            tToken: await _jar.getTToken(),
-            hasRuntimeCookie: hasRuntimeCookie,
+        if (PlatformUtils.isOhos && hydrated) {
+          // OHOS：快照已 hydrate，首页数据就绪，bootstrap 只是增强。把租约移交给
+          // 后台任务，preload 立即成功返回，首页不再等 bootstrap（真机日志里
+          // bootstrap 偶发 14s+）。租约保持独占直到后台任务完成/超时才释放，
+          // 其间经 WebView 适配器的请求会在 acquire 处排队（OHOS 适配器自带 12s
+          // 超时并回退网络核心），不会与脚本并发操作同一个 WebView。
+          // 其它平台保持原有同步等待语义，避免改变既有时序。
+          leaseHandedOff = true;
+          _log('startup WebView session bootstrap handed off to background');
+          final endBackground = SiteWebViewRuntime.instance
+              .beginBackgroundExclusive();
+          unawaited(
+            _runStartupBootstrap(
+              lease: lease,
+              view: view,
+              reason: reason,
+              scriptGroup: scriptGroup,
+              generation: generation,
+              isCancelled: () => !lease!.isCurrent,
+              cancelled: cancelled,
+            ).whenComplete(() async {
+              try {
+                await _cleanupStartupLease(lease!, scriptGroup);
+              } finally {
+                endBackground();
+              }
+            }),
           );
+          return hydrated;
         }
-        _log('startup WebView session bootstrap end reason=$reason');
+        final outcome = await _runStartupBootstrap(
+          lease: lease,
+          view: view,
+          reason: reason,
+          scriptGroup: scriptGroup,
+          generation: generation,
+          isCancelled: () => cancellation.isCancelled || !lease!.isCurrent,
+          cancelled: cancelled,
+        );
+        if (outcome == _StartupBootstrapOutcome.cancelled) return false;
+        // 超时时 lease 已被 invalidate，finally 不会再清理。
       } else {
         _log('startup WebView session bootstrap skipped: no _t');
       }
@@ -645,18 +676,113 @@ class BrowserTrustCoordinator {
       _log('startup WebView preload failed: $e', level: 'warning');
       return false;
     } finally {
-      if (lease != null) {
-        try {
-          await lease.value.controller.removeUserScriptsByGroupName(
-            groupName: scriptGroup,
-          );
-          if (lease.isCurrent) await lease.value.resetDocument();
-        } catch (_) {
-          lease.invalidate();
-        } finally {
+      if (lease != null && !leaseHandedOff) {
+        if (webViewTouched && lease.isCurrent) {
+          await _cleanupStartupLease(lease, scriptGroup);
+        } else {
           lease.release();
         }
       }
+    }
+  }
+
+  /// 清理启动预加载占用的租约：移除脚本、重置文档，最后一定释放租约。
+  /// 租约已失效（超时被 invalidate）时实例会被销毁，不再对可能卡死的原生调用
+  /// 做清理，避免再次拖住启动。
+  Future<void> _cleanupStartupLease(
+    BrowserResourceLease<SiteWebView> lease,
+    String scriptGroup,
+  ) async {
+    try {
+      if (lease.isCurrent) {
+        await lease.value.controller.removeUserScriptsByGroupName(
+          groupName: scriptGroup,
+        );
+        if (lease.isCurrent) await lease.value.resetDocument();
+      }
+    } catch (_) {
+      lease.invalidate();
+    } finally {
+      lease.release();
+    }
+  }
+
+  /// 启动预加载里的 session bootstrap：换无 CSP 的空文档、跑脚本、回写 cookie。
+  /// 整体限时；超时会 invalidate 租约（原生调用可能已卡住，实例不能再复用）。
+  Future<_StartupBootstrapOutcome> _runStartupBootstrap({
+    required BrowserResourceLease<SiteWebView> lease,
+    required SiteWebView view,
+    required String reason,
+    required String scriptGroup,
+    required int generation,
+    required bool Function() isCancelled,
+    required Future<void> cancelled,
+  }) async {
+    final c = view.controller;
+    try {
+      _log('startup WebView session bootstrap begin reason=$reason');
+      // bootstrap 脚本要在「轻量同源文档」里跑（见 WebViewSessionCookieRefreshService
+      // 的类注释），而此时 WebView 仍停在真实首页：首页带
+      // script-src 'nonce-…' 'strict-dynamic'（无 unsafe-eval）的 CSP，脚本里
+      // `(0, eval)(指纹引擎)` 会被拦（N15 复测 webview_session_bootstrap_result
+      // phase=exception），且 Ember 仍在后台抢带宽/CPU，bootstrap 拖到 15s 才失败。
+      // 快照已读完，先换成无 CSP 的同源空文档再执行，同时停掉首页的后台加载。
+      //
+      // bootstrap（含换文档）只是增强，任何一步卡死都不能无限占用租约，所以整体
+      // 限时；超时则放弃 bootstrap、废弃该 WebView 实例（原生调用可能已卡住，
+      // 不能再复用）。
+      final bootstrapFuture = () async {
+        await c.removeUserScriptsByGroupName(groupName: scriptGroup);
+        await view.resetDocument();
+        if (isCancelled()) {
+          return const SessionBootstrapResult.failure(phase: 'cancelled');
+        }
+        return WebViewSessionCookieRefreshService.instance.runOnController(
+          c,
+          reason: '$reason:startup_webview',
+          pluginCandidates: _preload.pluginCandidatesSync,
+          timeout: _startupBootstrapTimeout,
+          isCancelled: isCancelled,
+          cancellationSignal: cancelled,
+        );
+      }();
+      unawaited(bootstrapFuture.then<void>((_) {}, onError: (Object _) {}));
+      SessionBootstrapResult bootstrapResult;
+      try {
+        bootstrapResult = await bootstrapFuture.timeout(
+          _startupBootstrapBudget,
+        );
+      } on TimeoutException {
+        _log(
+          'startup WebView session bootstrap timeout, skip reason=$reason',
+          level: 'warning',
+        );
+        lease.invalidate();
+        return _StartupBootstrapOutcome.timedOut;
+      }
+      if (isCancelled()) return _StartupBootstrapOutcome.cancelled;
+      final bootstrapped = bootstrapResult.ok;
+      await _syncCookiesFromController(c, generation);
+      if (isCancelled()) return _StartupBootstrapOutcome.cancelled;
+      final runtimeDetails = await _jar.getCookieDiagnosticsForRequest(
+        Uri.parse(AppConstants.baseUrl),
+        names: const {'_rt'},
+      );
+      final hasRuntimeCookie = runtimeDetails.any(
+        (cookie) => (cookie['valueLength'] as int? ?? 0) > 0,
+      );
+      if (bootstrapped && hasRuntimeCookie) {
+        WebViewSessionCookieRefreshService.instance.markSynced(
+          reason: '$reason:startup_webview',
+          tToken: await _jar.getTToken(),
+          hasRuntimeCookie: hasRuntimeCookie,
+        );
+      }
+      _log('startup WebView session bootstrap end reason=$reason');
+      return _StartupBootstrapOutcome.done;
+    } catch (e) {
+      _log('startup WebView session bootstrap failed: $e', level: 'warning');
+      return _StartupBootstrapOutcome.failed;
     }
   }
 
