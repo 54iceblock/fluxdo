@@ -1193,7 +1193,16 @@ class _WebViewPageState extends ConsumerState<WebViewPage> {
     int revision,
   ) async {
     try {
-      await WebViewCookiePriming.instance.prime(url);
+      try {
+        await WebViewCookiePriming.instance.prime(url);
+      } on WebViewPrimingException catch (error) {
+        // Cookie 预热失败（例如 OHOS 上 ArkWeb 无法覆盖已有的 HttpOnly `_rt`，
+        // SetCookie 返回 EXCLUDE_OVERWRITE_HTTP_ONLY）只代表登录态可能不同步，
+        // 不代表网络不可达。此前直接走 _showLoadError，用户会看到
+        // 「无法加载此网页 / 请检查网络连接」的误导性错误页；这里降级为继续加载，
+        // 页面最差表现为未登录，仍可浏览。失败详情已由 CookieLogger 记录。
+        debugPrint('WebViewPage: cookie priming 失败，降级继续加载: $error');
+      }
       if (!mounted ||
           _closing ||
           _minimized ||
