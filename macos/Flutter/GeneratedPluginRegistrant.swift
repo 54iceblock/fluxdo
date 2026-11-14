@@ -29,7 +29,7 @@ import mobile_scanner
 import native_animated_image_macos
 import package_info_plus
 import quickjs_engine
-import record_darwin
+import record_macos
 import screen_brightness_macos
 import screen_retriever_macos
 import share_plus
@@ -68,7 +68,7 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   NativeAnimatedImageMacosPlugin.register(with: registry.registrar(forPlugin: "NativeAnimatedImageMacosPlugin"))
   FPPPackageInfoPlusPlugin.register(with: registry.registrar(forPlugin: "FPPPackageInfoPlusPlugin"))
   QuickjsEnginePlugin.register(with: registry.registrar(forPlugin: "QuickjsEnginePlugin"))
-  RecordDarwinPlugin.register(with: registry.registrar(forPlugin: "RecordDarwinPlugin"))
+  RecordMacOsPlugin.register(with: registry.registrar(forPlugin: "RecordMacOsPlugin"))
   ScreenBrightnessMacosPlugin.register(with: registry.registrar(forPlugin: "ScreenBrightnessMacosPlugin"))
   ScreenRetrieverMacosPlugin.register(with: registry.registrar(forPlugin: "ScreenRetrieverMacosPlugin"))
   SharePlusMacosPlugin.register(with: registry.registrar(forPlugin: "SharePlusMacosPlugin"))
