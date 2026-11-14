@@ -1,4 +1,4 @@
-# FluxDO HarmonyOS 移植环境变量（每次 pwsh 调用前 dot-source 本文件）
+﻿# FluxDO HarmonyOS 移植环境变量（每次 pwsh 调用前 dot-source 本文件）
 # 用法: . C:\Users\iceblock\fluxdo\tools\env.ps1
 
 $WS = 'C:\Users\iceblock\fluxdo'
