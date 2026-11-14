@@ -8,12 +8,14 @@ import 'package:path/path.dart' as p;
 
 import '../../constants.dart';
 import '../app_logger.dart';
-import '../network/adapters/cronet_fallback_service.dart';
+import '../network/adapters/platform_adapter.dart';
 import '../network/doh/network_settings_service.dart';
+import '../network/core/net_core_service.dart';
 import '../network/health/network_health_controller.dart';
 import '../network/proxy/proxy_settings_service.dart';
 import '../../l10n/s.dart';
 import 'log_writer.dart';
+import 'log_policy.dart';
 
 /// 日志文件管理工具
 class LoggerUtils {
@@ -23,7 +25,7 @@ class LoggerUtils {
   static Future<File> getLogFile() => LogWriter.getLogFile();
 
   /// 生成带设备/APP 头信息的分享文件，返回临时文件路径
-  static Future<String> getShareFilePath() async {
+  static Future<String> getShareFilePath({bool fullHistory = false}) async {
     var stage = 'flushLogs';
     String? sharePath;
     try {
@@ -44,7 +46,9 @@ class LoggerUtils {
       final shareFile = File(p.join(dir.path, 'app_log_share.jsonl'));
       sharePath = shareFile.path;
       stage = 'writeExportFile';
-      await shareFile.writeAsString('$header$logContent');
+      await shareFile.writeAsString(
+        '$header${LogPolicy.export(logContent, fullHistory: fullHistory)}',
+      );
       return shareFile.path;
     } catch (error, stackTrace) {
       AppLogger.error(
@@ -80,7 +84,9 @@ class LoggerUtils {
       final deviceInfo = DeviceInfoPlugin();
       if (Platform.isAndroid) {
         final info = await deviceInfo.androidInfo;
-        buf.writeln('平台: Android ${info.version.release} (SDK ${info.version.sdkInt})');
+        buf.writeln(
+          '平台: Android ${info.version.release} (SDK ${info.version.sdkInt})',
+        );
         buf.writeln('设备: ${info.brand} ${info.model}');
       } else if (Platform.isIOS) {
         final info = await deviceInfo.iosInfo;
@@ -88,7 +94,9 @@ class LoggerUtils {
         buf.writeln('设备: ${info.utsname.machine}');
       } else if (Platform.isMacOS) {
         final info = await deviceInfo.macOsInfo;
-        buf.writeln('平台: macOS ${info.majorVersion}.${info.minorVersion}.${info.patchVersion}');
+        buf.writeln(
+          '平台: macOS ${info.majorVersion}.${info.minorVersion}.${info.patchVersion}',
+        );
         buf.writeln('设备: ${info.model} (${info.arch})');
       } else if (Platform.isLinux) {
         final info = await deviceInfo.linuxInfo;
@@ -121,13 +129,15 @@ class LoggerUtils {
 
     try {
       final pkg = await PackageInfo.fromPlatform();
-      buf.writeln(jsonEncode({
-        '_header': 'app_info',
-        'appName': pkg.appName,
-        'version': pkg.version,
-        'buildNumber': pkg.buildNumber,
-        'packageName': pkg.packageName,
-      }));
+      buf.writeln(
+        jsonEncode({
+          '_header': 'app_info',
+          'appName': pkg.appName,
+          'version': pkg.version,
+          'buildNumber': pkg.buildNumber,
+          'packageName': pkg.packageName,
+        }),
+      );
     } catch (_) {}
 
     try {
@@ -177,7 +187,10 @@ class LoggerUtils {
           'buildNumber': info.buildNumber,
         };
       } else {
-        device = {'_header': 'device_info', 'platform': Platform.operatingSystem};
+        device = {
+          '_header': 'device_info',
+          'platform': Platform.operatingSystem,
+        };
       }
 
       // User-Agent
@@ -215,8 +228,7 @@ class LoggerUtils {
     final lines = <String>[];
 
     // 适配器
-    final cronet = CronetFallbackService.instance;
-    lines.add('适配器: ${cronet.hasFallenBack ? 'Dart IO' : 'Cronet'}');
+    lines.add('适配器: ${resolveEffectiveAdapter().type.name}');
 
     // DOH 配置
     final doh = NetworkSettingsService.instance.current;
@@ -244,8 +256,7 @@ class LoggerUtils {
   static Map<String, dynamic> _getNetworkConfigMap() {
     final map = <String, dynamic>{};
 
-    final cronet = CronetFallbackService.instance;
-    map['adapter'] = cronet.hasFallenBack ? 'Dart IO' : 'Cronet';
+    map['adapter'] = resolveEffectiveAdapter().type.name;
 
     final doh = NetworkSettingsService.instance.current;
     map['dohEnabled'] = doh.dohEnabled;
@@ -255,7 +266,18 @@ class LoggerUtils {
     }
 
     final proxy = ProxySettingsService.instance.current;
+    final core = NetCoreService.instance.status;
+    // 保留旧字段含义，新增实际出口，避免把系统代理误读为直连。
     map['proxyEnabled'] = proxy.isValid;
+    map['systemProxyEnabled'] = core.systemProxy;
+    map['effectiveProxyEnabled'] = proxy.isValid || core.systemProxy;
+    map['proxySource'] = proxy.isValid
+        ? 'app'
+        : (core.systemProxy ? 'system' : 'direct');
+    map['fingerprintSelection'] = doh.fingerprintPreset;
+    map['templateMode'] = core.templateMode;
+    map['templateSource'] = core.templateSource;
+    map['templatePreset'] = core.templatePreset;
     if (proxy.isValid) {
       map['proxyHost'] = '${proxy.host}:${proxy.port}';
     }
@@ -297,8 +319,8 @@ class LoggerUtils {
         if (json['message'] == null) {
           final customParams =
               json['customParameters'] as Map<String, dynamic>?;
-          json['message'] = customParams?['message']?.toString() ??
-              json['error']?.toString();
+          json['message'] =
+              customParams?['message']?.toString() ?? json['error']?.toString();
           // 同时提升 tag
           json['tag'] ??= customParams?['tag']?.toString();
         }

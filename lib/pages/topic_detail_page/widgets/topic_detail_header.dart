@@ -1,9 +1,11 @@
+import 'package:common_ui/common_ui.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:app_icons/app_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+
 import '../../../l10n/s.dart';
 import '../../../models/topic.dart';
 import '../../../providers/discourse_providers.dart';
@@ -21,6 +23,10 @@ import '../../category_topics_page.dart';
 import '../../tag_topics_page.dart';
 import '../../../widgets/topic/assign_sheet.dart';
 import '../../../widgets/topic/local_tag_block_actions.dart';
+import '../../../theme/app_colors.dart';
+import '../../../services/preloaded_data_service.dart';
+import 'topic_state_summary.dart';
+import 'topic_statistics.dart';
 
 /// 话题详情页头部组件
 class TopicDetailHeader extends ConsumerWidget {
@@ -70,7 +76,10 @@ class TopicDetailHeader extends ConsumerWidget {
     return Container(
       padding: EdgeInsets.fromLTRB(16, showTitle ? 20 : 12, 16, 16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: PageBackgroundScope.contentColor(
+          context,
+          theme.colorScheme.surface,
+        ),
         border: Border(
           bottom: BorderSide(
             color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
@@ -98,7 +107,7 @@ class TopicDetailHeader extends ConsumerWidget {
                         child: Icon(
                           Symbols.mail_rounded,
                           size: 20,
-                          color: theme.colorScheme.primary,
+                          color: context.emphasis.accent,
                         ),
                       ),
                     ),
@@ -122,7 +131,7 @@ class TopicDetailHeader extends ConsumerWidget {
                         child: Icon(
                           Symbols.check_box_rounded,
                           size: 20,
-                          color: Colors.green,
+                          color: context.appColors.green,
                         ),
                       ),
                     ),
@@ -142,6 +151,7 @@ class TopicDetailHeader extends ConsumerWidget {
             SizedBox(key: headerKey),
 
           SizedBox(height: showTitle ? 16 : 8),
+          TopicStateSummary(detail: detail),
 
           // 分类与标签（私信话题不显示）
           if (!detail.isPrivateMessage &&
@@ -166,7 +176,7 @@ class TopicDetailHeader extends ConsumerWidget {
                       }
                       Navigator.push(
                         context,
-                        MaterialPageRoute(
+                        InteractionPageRoute(
                           builder: (_) =>
                               CategoryTopicsPage(category: category),
                         ),
@@ -189,7 +199,7 @@ class TopicDetailHeader extends ConsumerWidget {
                         }
                         Navigator.push(
                           context,
-                          MaterialPageRoute(
+                          InteractionPageRoute(
                             builder: (_) => TagTopicsPage(tagName: tag.name),
                           ),
                         );
@@ -206,18 +216,23 @@ class TopicDetailHeader extends ConsumerWidget {
           // 看不出来,指定完等于白指定。
           if (detail.isAssigned) ...[
             InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () => unawaited(
-                showAssignSheet(context, ref, topicId: detail.id),
+              customBorder: RoundedSuperellipseBorder(
+                borderRadius: context.shapes.borderRadius(16),
               ),
+              onTap: () =>
+                  unawaited(showAssignSheet(context, ref, topicId: detail.id)),
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: ShapeDecoration(
                   color: theme.colorScheme.primaryContainer.withValues(
                     alpha: 0.5,
                   ),
-                  borderRadius: BorderRadius.circular(16),
+                  shape: RoundedSuperellipseBorder(
+                    borderRadius: context.shapes.borderRadius(16),
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -225,14 +240,14 @@ class TopicDetailHeader extends ConsumerWidget {
                     Icon(
                       Icons.assignment_ind_rounded,
                       size: 16,
-                      color: theme.colorScheme.primary,
+                      color: context.emphasis.accent,
                     ),
                     const SizedBox(width: 6),
                     Text(
                       '已指定给 '
                       '${detail.assignedToUser?.displayName ?? detail.assignedToGroupName ?? ''}',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.primary,
+                        color: context.emphasis.accent,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -297,6 +312,12 @@ class TopicDetailHeader extends ConsumerWidget {
               // 投票按钮
               TopicVoteButton(topic: detail, onVoteChanged: onVoteChanged),
             ],
+          ),
+
+          TopicStatistics(
+            detail: detail,
+            wordsPerMinute: PreloadedDataService()
+                .siteSettingsSync?['read_time_word_count'] as num?,
           ),
 
           // AI 摘要 & 订阅按钮

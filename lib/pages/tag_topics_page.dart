@@ -1,3 +1,4 @@
+import 'package:common_ui/common_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:app_icons/app_icons.dart';
 import 'package:flutter/foundation.dart';
@@ -103,7 +104,9 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
         return null;
       }
       completeTopicUpdatesRefresh(const {}, response);
-      setState(() => _topics = prependTopicUpdates(_topics, response.topics));
+      setState(
+        () => _topics = prependTopicUpdates(_topics, response.topics, ids),
+      );
       return response.topics.map((topic) => topic.id).toList();
     });
     if (mounted && inserted.isNotEmpty && _scrollController.hasClients) {
@@ -207,7 +210,7 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
       completeTopicUpdatesRefresh(ticket.snapshot, response);
       final result = _paginationHelper.processRefresh(
         PaginationResult(
-          items: response.topics,
+          items: syncFirstPageWithTracking(response.topics),
           moreUrl: response.moreTopicsUrl,
         ),
       );
@@ -253,7 +256,9 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
       );
 
       if (!isCurrentTopicUpdatesRefresh(generation)) return;
-      final updates = {for (final t in response.topics) t.id: t};
+      final updates = {
+        for (final t in syncFirstPageWithTracking(response.topics)) t.id: t,
+      };
       setState(() {
         _topics = [for (final t in _topics) updates[t.id] ?? t];
       });
@@ -398,7 +403,7 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
       return;
     }
     await Navigator.of(context).push(
-      MaterialPageRoute(
+      InteractionPageRoute(
         builder: (_) => TopicDetailPage(
           topicId: topic.id,
           initialTitle: topic.title,
@@ -453,7 +458,7 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
             icon: const Icon(Symbols.search_rounded),
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(
+              InteractionPageRoute(
                 builder: (_) => SearchPage(
                   initialFilter: SearchFilter(tags: [widget.tagName]),
                 ),
@@ -535,6 +540,7 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
 
     return TopicCardPrewarmScope(
       topics: visible,
+      compactPinned: true,
       child: DesktopRefreshIndicator(
       onRefresh: _loadTopics,
       child: ListView.builder(
@@ -592,6 +598,9 @@ class _TagTopicsPageState extends ConsumerState<TagTopicsPage>
           return buildTopicItem(
             context: context,
             topic: topic,
+            style: topic.pinned
+                ? TopicItemStyle.compact
+                : TopicItemStyle.standard,
             isSelected: topic.id == selectedTopicId,
             onTap: () => _openTopic(topic),
             enableLongPress: enableLongPress,

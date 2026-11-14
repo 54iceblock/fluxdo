@@ -4,7 +4,7 @@ import 'platform_utils.dart';
 
 /// 鸿蒙（HarmonyOS / OpenHarmony）能力开关。
 ///
-/// 移植背景：OHOS 平台没有官方的 DOH 代理、rhttp（Rust）、QuickJS（flutter_js）、
+/// 移植背景：OHOS 平台没有官方的 QuickJS（flutter_js）、
 /// AVIF（flutter_avif）、super_clipboard 等原生实现。这些能力在 lib/ 里被无条件
 /// 使用，直接调用会在运行时抛 MissingPluginException / UnsupportedError。
 ///
@@ -14,16 +14,6 @@ class OhosCompat {
   OhosCompat._();
 
   static bool get isOhos => PlatformUtils.isOhos;
-
-  /// 是否支持 Rust DOH 代理（core/doh_proxy）
-  /// OHOS：已交叉编译 libdoh_proxy.so（x86_64 / arm64-v8a）并打进 HAP 的 libs/`<abi>`/，
-  /// 运行时由 `DynamicLibrary.open('libdoh_proxy.so')` 加载（见 doh_proxy_ffi.dart）。
-  static bool get supportsDohProxy => true;
-
-  /// 是否支持 rhttp（Rust reqwest / TLS 指纹）
-  /// OHOS：已交叉编译 librhttp.so 并打进 HAP；FRB 默认加载器不识别 OHOS，
-  /// 由 main.dart 显式传 externalLibraryPath='librhttp.so' 加载。
-  static bool get supportsRhttp => true;
 
   /// 是否支持 JS cook 渲染（Discourse markdown-it 预览）
   /// OHOS：flutter_js 无原生库，但已自编 QuickJS（libohos_quickjs.so）

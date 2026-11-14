@@ -1,7 +1,9 @@
+import 'package:common_ui/common_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:app_icons/app_icons.dart';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../models/topic.dart';
 import '../models/category.dart';
 import '../providers/discourse_providers.dart';
@@ -25,7 +27,9 @@ import '../widgets/common/error_view.dart';
 import 'topic_detail_page/topic_detail_page.dart';
 import 'search_page.dart';
 import '../models/search_filter.dart';
+
 import 'package:dio/dio.dart';
+
 import '../services/app_error_handler.dart';
 import '../l10n/s.dart';
 import '../widgets/desktop_refresh_indicator.dart';
@@ -111,7 +115,9 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
         return null;
       }
       completeTopicUpdatesRefresh(const {}, response);
-      setState(() => _topics = prependTopicUpdates(_topics, response.topics));
+      setState(
+        () => _topics = prependTopicUpdates(_topics, response.topics, ids),
+      );
       return response.topics.map((topic) => topic.id).toList();
     });
     if (mounted && inserted.isNotEmpty && _scrollController.hasClients) {
@@ -230,7 +236,7 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
       completeTopicUpdatesRefresh(ticket.snapshot, response);
       final result = _paginationHelper.processRefresh(
         PaginationResult(
-          items: response.topics,
+          items: syncFirstPageWithTracking(response.topics),
           moreUrl: response.moreTopicsUrl,
         ),
       );
@@ -280,7 +286,7 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
       completeTopicUpdatesRefresh(ticket.snapshot, response);
       final result = _paginationHelper.processRefresh(
         PaginationResult(
-          items: response.topics,
+          items: syncFirstPageWithTracking(response.topics),
           moreUrl: response.moreTopicsUrl,
         ),
       );
@@ -327,7 +333,9 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
       );
 
       if (!isCurrentTopicUpdatesRefresh(generation)) return;
-      final updates = {for (final t in response.topics) t.id: t};
+      final updates = {
+        for (final t in syncFirstPageWithTracking(response.topics)) t.id: t,
+      };
       setState(() {
         _topics = [for (final t in _topics) updates[t.id] ?? t];
       });
@@ -524,7 +532,7 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
   Future<void> _createTopic() async {
     final topicId = await Navigator.push<int>(
       context,
-      MaterialPageRoute(
+      InteractionPageRoute(
         builder: (_) => CreateTopicPage(
           initialCategoryId: widget.category.id,
           initialTags: _selectedTags.isNotEmpty ? _selectedTags : null,
@@ -547,7 +555,9 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
         : topic.lastReadPostNumber;
     // 宽屏进右栏(本页自己是平行视界宿主),窄屏全屏 push。
     if (MasterDetailLayout.canShowBothPanesFor(context)) {
-      ref.read(_paneProvider.notifier).select(
+      ref
+          .read(_paneProvider.notifier)
+          .select(
             topicId: topic.id,
             initialTitle: topic.title,
             scrollToPostNumber: scrollToPostNumber,
@@ -555,7 +565,7 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
       return;
     }
     await Navigator.of(context).push(
-      MaterialPageRoute(
+      InteractionPageRoute(
         builder: (_) => TopicDetailPage(
           topicId: topic.id,
           initialTitle: topic.title,
@@ -585,7 +595,9 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
           if (isLoggedIn)
             CategoryNotificationButton(
               level: CategoryNotificationLevel.fromValue(
-                ref.watch(categoryNotificationOverridesProvider)[widget.category.id] ??
+                ref.watch(
+                      categoryNotificationOverridesProvider,
+                    )[widget.category.id] ??
                     widget.category.notificationLevel,
               ),
               isLoading: _isUpdatingNotificationLevel,
@@ -595,7 +607,7 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
             icon: const Icon(Symbols.search_rounded),
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(
+              InteractionPageRoute(
                 builder: (_) => SearchPage(
                   initialFilter: SearchFilter(
                     categoryId: widget.category.id,
@@ -636,10 +648,7 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
       ),
     );
 
-    return MasterDetailPaneHost(
-      stackProvider: _paneProvider,
-      master: list,
-    );
+    return MasterDetailPaneHost(stackProvider: _paneProvider, master: list);
   }
 
   Widget _buildBody(int? selectedTopicId) {
@@ -686,69 +695,80 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage>
 
     return TopicCardPrewarmScope(
       topics: visible,
+      compactPinned: true,
       child: DesktopRefreshIndicator(
-      onRefresh: _loadTopics,
-      child: ListView.builder(
-        controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(12),
-        itemCount: visible.length + updateOffset + hintOffset + 1,
-        itemBuilder: (context, index) {
-          if (updateOffset > 0 && index == 0) {
-            return TopicListUpdateBanner(
-              count: updateCount, filter: _currentFilter,
-              newNewView: newNewViewEnabled, loading: isLoadingTopicUpdates,
-              onTap: _showTopicUpdates,
-            );
-          }
-          if (hintOffset > 0 && index == updateOffset) {
-            return KeywordFilterHintBar(
-              hiddenCount: hidden,
-              hiddenByBlocked: filterResult.hiddenByBlocked,
-              hiddenByTag: filterResult.hiddenByTag,
-            );
-          }
-          final topicIndex = index - hintOffset - updateOffset;
-          if (topicIndex >= visible.length) {
-            if (visible.isEmpty && !_hasMore) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 100),
-                child: Center(child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Symbols.inbox_rounded, size: 48,
-                      color: Theme.of(context).colorScheme.outline),
-                    const SizedBox(height: 12),
-                    Text(context.l10n.categoryTopics_empty),
-                  ],
-                )),
+        onRefresh: _loadTopics,
+        child: ListView.builder(
+          controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(12),
+          itemCount: visible.length + updateOffset + hintOffset + 1,
+          itemBuilder: (context, index) {
+            if (updateOffset > 0 && index == 0) {
+              return TopicListUpdateBanner(
+                count: updateCount,
+                filter: _currentFilter,
+                newNewView: newNewViewEnabled,
+                loading: isLoadingTopicUpdates,
+                onTap: _showTopicUpdates,
               );
             }
-            return PagedListFooter(
-              hasMore: _hasMore,
-              isLoadingMore: _isLoadingMore,
-              isLoadMoreFailed: _isLoadMoreFailed,
-              onRetry: () {
-                setState(() => _isLoadMoreFailed = false);
-                _loadMore();
-              },
+            if (hintOffset > 0 && index == updateOffset) {
+              return KeywordFilterHintBar(
+                hiddenCount: hidden,
+                hiddenByBlocked: filterResult.hiddenByBlocked,
+                hiddenByTag: filterResult.hiddenByTag,
+              );
+            }
+            final topicIndex = index - hintOffset - updateOffset;
+            if (topicIndex >= visible.length) {
+              if (visible.isEmpty && !_hasMore) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 100),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Symbols.inbox_rounded,
+                          size: 48,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(context.l10n.categoryTopics_empty),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              return PagedListFooter(
+                hasMore: _hasMore,
+                isLoadingMore: _isLoadingMore,
+                isLoadMoreFailed: _isLoadMoreFailed,
+                onRetry: () {
+                  setState(() => _isLoadMoreFailed = false);
+                  _loadMore();
+                },
+              );
+            }
+
+            final topic = visible[topicIndex];
+            final enableLongPress = ref
+                .watch(preferencesProvider)
+                .longPressPreview;
+
+            return buildTopicItem(
+              context: context,
+              topic: topic,
+              style: topic.pinned
+                  ? TopicItemStyle.compact
+                  : TopicItemStyle.standard,
+              isSelected: topic.id == selectedTopicId,
+              onTap: () => _openTopic(topic),
+              enableLongPress: enableLongPress,
             );
-          }
-
-          final topic = visible[topicIndex];
-          final enableLongPress = ref
-              .watch(preferencesProvider)
-              .longPressPreview;
-
-          return buildTopicItem(
-            context: context,
-            topic: topic,
-            isSelected: topic.id == selectedTopicId,
-            onTap: () => _openTopic(topic),
-            enableLongPress: enableLongPress,
-          );
-        },
-      ),
+          },
+        ),
       ),
     );
   }
@@ -770,12 +790,16 @@ class _CreateTopicButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(8),
+        customBorder: RoundedSuperellipseBorder(
+          borderRadius: context.shapes.borderRadius(8),
+        ),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
+          decoration: ShapeDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(8),
+            shape: RoundedSuperellipseBorder(
+              borderRadius: context.shapes.borderRadius(8),
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

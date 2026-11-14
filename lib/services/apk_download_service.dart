@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:ota_update/ota_update.dart';
 
 import '../l10n/s.dart';
+import '../utils/platform_utils.dart';
 import 'update_service.dart';
 
 /// APK 下载状态
@@ -20,17 +21,14 @@ class ApkDownloadProgress {
   final int progress; // 0-100
   final String? error;
 
-  ApkDownloadProgress({
-    required this.status,
-    this.progress = 0,
-    this.error,
-  });
+  ApkDownloadProgress({required this.status, this.progress = 0, this.error});
 }
 
 /// APK 下载安装服务
 class ApkDownloadService {
   final Dio _dio;
   bool _cancelled = false;
+  OtaUpdate? _activeUpdate;
 
   ApkDownloadService({Dio? dio}) : _dio = dio ?? Dio();
 
@@ -40,10 +38,23 @@ class ApkDownloadService {
   Stream<ApkDownloadProgress> downloadAndInstall(ApkAsset asset) async* {
     _cancelled = false;
 
+    // HarmonyOS：三方应用不能静默安装 HAP，不调用 OtaUpdate；
+    // 调用方（UpdateCheckerHelper.handleUpdate）在鸿蒙上走「打开发布页」，
+    // 这里只是防御：万一被调到，直接报错而不是触达插件。
+    if (PlatformUtils.isOhos) {
+      yield ApkDownloadProgress(
+        status: ApkDownloadStatus.error,
+        error: S.current.download_internalError,
+      );
+      return;
+    }
+
     // 应用用户配置的 GitHub 反代前缀（未配置时保持直连）
     final githubProxy = await UpdateService.getGithubProxy();
-    final downloadUrl =
-        UpdateService.applyGithubProxy(asset.downloadUrl, githubProxy);
+    final downloadUrl = UpdateService.applyGithubProxy(
+      asset.downloadUrl,
+      githubProxy,
+    );
 
     // 阶段 1：获取 SHA256 校验和（如果有）
     String? expectedSha256;
@@ -70,11 +81,16 @@ class ApkDownloadService {
       progress: 0,
     );
 
+    final update = OtaUpdate();
+    _activeUpdate = update;
     try {
-      final otaEvent = OtaUpdate().execute(
+      final otaEvent = update.execute(
         downloadUrl,
         destinationFilename: asset.name,
         sha256checksum: expectedSha256,
+        // Android 12+ 尝试免确认自更新；系统要求确认时仍显示安装界面。
+        usePackageInstaller: true,
+        confirmationNotificationText: S.current.update_notification_ready,
       );
 
       await for (final event in otaEvent) {
@@ -122,7 +138,9 @@ class ApkDownloadService {
           case OtaStatus.DOWNLOAD_ERROR:
             yield ApkDownloadProgress(
               status: ApkDownloadStatus.error,
-              error: S.current.download_failedWithError(event.value ?? S.current.error_unknown),
+              error: S.current.download_failedWithError(
+                event.value ?? S.current.error_unknown,
+              ),
             );
             break;
 
@@ -133,8 +151,22 @@ class ApkDownloadService {
             );
             break;
 
-          // OHOS 移植：ota_update 7.0.2 没有 INSTALLATION_DONE / INSTALLATION_ERROR
-          // （安装完成由系统安装器接管，插件只抛 INSTALLING/错误态）。
+          case OtaStatus.INSTALLATION_DONE:
+            yield ApkDownloadProgress(
+              status: ApkDownloadStatus.completed,
+              progress: 100,
+            );
+            break;
+
+          case OtaStatus.INSTALLATION_ERROR:
+            yield ApkDownloadProgress(
+              status: ApkDownloadStatus.error,
+              error: S.current.download_installFailed(
+                event.value ?? S.current.error_unknown,
+              ),
+            );
+            break;
+
           case OtaStatus.CANCELED:
             // 用户取消，不需要额外处理
             return;
@@ -145,6 +177,8 @@ class ApkDownloadService {
         status: ApkDownloadStatus.error,
         error: S.current.download_failed('$e'),
       );
+    } finally {
+      if (identical(_activeUpdate, update)) _activeUpdate = null;
     }
   }
 
@@ -165,7 +199,8 @@ class ApkDownloadService {
   }
 
   /// 取消下载
-  void cancelDownload() {
+  Future<void> cancelDownload() async {
     _cancelled = true;
+    await _activeUpdate?.cancel();
   }
 }

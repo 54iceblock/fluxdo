@@ -101,11 +101,11 @@ extension _PostFooterMenuActions on _PostFooterSectionState {
                 ListTile(
                   leading: Icon(
                     Symbols.edit_rounded,
-                    color: theme.colorScheme.primary,
+                    color: context.emphasis.accent,
                   ),
                   title: Text(
                     context.l10n.common_edit,
-                    style: TextStyle(color: theme.colorScheme.primary),
+                    style: TextStyle(color: context.emphasis.accent),
                   ),
                   onTap: () {
                     Navigator.pop(ctx);
@@ -213,7 +213,7 @@ extension _PostFooterMenuActions on _PostFooterSectionState {
                         ? Symbols.check_box_rounded
                         : Symbols.check_box_outline_blank_rounded,
                     color: _isAcceptedAnswer
-                        ? Colors.green
+                        ? context.appColors.green
                         : theme.colorScheme.onSurface,
                   ),
                   title: Text(
@@ -222,7 +222,7 @@ extension _PostFooterMenuActions on _PostFooterSectionState {
                         : context.l10n.post_acceptSolution,
                     style: TextStyle(
                       color: _isAcceptedAnswer
-                          ? Colors.green
+                          ? context.appColors.green
                           : theme.colorScheme.onSurface,
                     ),
                   ),
@@ -287,11 +287,11 @@ extension _PostFooterMenuActions on _PostFooterSectionState {
                 ListTile(
                   leading: Icon(
                     Symbols.restore_rounded,
-                    color: theme.colorScheme.primary,
+                    color: context.emphasis.accent,
                   ),
                   title: Text(
                     context.l10n.common_restore,
-                    style: TextStyle(color: theme.colorScheme.primary),
+                    style: TextStyle(color: context.emphasis.accent),
                   ),
                   onTap: _isDeleting
                       ? null

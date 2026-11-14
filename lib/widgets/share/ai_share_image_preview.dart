@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:common_ui/common_ui.dart';
 import 'package:ai_model_manager/ai_model_manager.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'package:app_icons/app_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:m3e_ui/m3e_ui.dart';
+
 import '../../providers/preferences_provider.dart';
 import '../../services/discourse/discourse_service.dart';
 import '../../l10n/s.dart';
@@ -113,8 +115,9 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
   }
 
   ThemeData _buildThemeData(ThemeData currentTheme) {
-    final brightness =
-        _selectedTheme.isDark ? Brightness.dark : Brightness.light;
+    final brightness = _selectedTheme.isDark
+        ? Brightness.dark
+        : Brightness.light;
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
@@ -213,7 +216,9 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
       // 上传到 Discourse
       final service = DiscourseService();
       final uploadResult = await service.uploadImage(tempFile.path);
-      final imageMarkdown = uploadResult.toMarkdown(alt: S.current.share_aiReplyAlt);
+      final imageMarkdown = uploadResult.toMarkdown(
+        alt: S.current.share_aiReplyAlt,
+      );
 
       if (mounted) {
         // 关闭预览页
@@ -242,9 +247,11 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
 
     return Container(
       height: screenHeight * 0.85,
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        shape: RoundedSuperellipseBorder(
+          borderRadius: BorderRadius.vertical(top: context.shapes.radius(16)),
+        ),
       ),
       child: Column(
         children: [
@@ -253,10 +260,11 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
             margin: const EdgeInsets.symmetric(vertical: 12),
             width: 40,
             height: 4,
-            decoration: BoxDecoration(
-              color:
-                  theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(2),
+            decoration: ShapeDecoration(
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+              shape: RoundedSuperellipseBorder(
+                borderRadius: context.shapes.borderRadius(2),
+              ),
             ),
           ),
 
@@ -271,7 +279,9 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
                 ),
                 Expanded(
                   child: Text(
-                    widget.messages.length > 1 ? context.l10n.share_exportChatImage : context.l10n.share_exportImage,
+                    widget.messages.length > 1
+                        ? context.l10n.share_exportChatImage
+                        : context.l10n.share_exportImage,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w500,
@@ -292,15 +302,17 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
               padding: const EdgeInsets.all(16),
               child: Center(
                 child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
+                  decoration: ShapeDecoration(
+                    shadows: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.1),
                         blurRadius: 20,
                         offset: const Offset(0, 4),
                       ),
                     ],
+                    shape: RoundedSuperellipseBorder(
+                      borderRadius: context.shapes.borderRadius(12),
+                    ),
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: Theme(
@@ -323,8 +335,9 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.5),
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.5,
+              ),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -344,15 +357,17 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
                           border: Border.all(
                             color: isSelected
                                 ? theme.colorScheme.primary
-                                : theme.colorScheme.outline
-                                    .withValues(alpha: 0.3),
+                                : theme.colorScheme.outline.withValues(
+                                    alpha: 0.3,
+                                  ),
                             width: isSelected ? 2.5 : 1,
                           ),
                           boxShadow: isSelected
                               ? [
                                   BoxShadow(
-                                    color: theme.colorScheme.primary
-                                        .withValues(alpha: 0.3),
+                                    color: theme.colorScheme.primary.withValues(
+                                      alpha: 0.3,
+                                    ),
                                     blurRadius: 8,
                                   ),
                                 ]
@@ -362,8 +377,7 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
                             ? Icon(
                                 Symbols.check_rounded,
                                 size: 18,
-                                color:
-                                    t.isDark ? Colors.white : Colors.black87,
+                                color: t.isDark ? Colors.white : Colors.black87,
                               )
                             : null,
                       ),
@@ -375,8 +389,9 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
                           color: isSelected
                               ? theme.colorScheme.primary
                               : theme.colorScheme.onSurfaceVariant,
-                          fontWeight:
-                              isSelected ? FontWeight.w500 : FontWeight.normal,
+                          fontWeight: isSelected
+                              ? FontWeight.w500
+                              : FontWeight.normal,
                         ),
                       ),
                     ],
@@ -398,8 +413,9 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
               color: theme.colorScheme.surface,
               border: Border(
                 top: BorderSide(
-                  color: theme.colorScheme.outlineVariant
-                      .withValues(alpha: 0.3),
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.3,
+                  ),
                 ),
               ),
             ),
@@ -415,11 +431,13 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
                         onPressed: _anyLoading ? null : _copyImage,
                         icon: _isCopying
                             ? const LoadingSpinner(size: 18)
-                            : const Icon(Symbols.content_copy_rounded, size: 18),
+                            : const Icon(
+                                Symbols.content_copy_rounded,
+                                size: 18,
+                              ),
                         label: Text(context.l10n.common_copy),
                         style: OutlinedButton.styleFrom(
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 12),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                       ),
                     ),
@@ -433,8 +451,7 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
                             : const Icon(Symbols.save_alt_rounded, size: 18),
                         label: Text(ImageSaveUtils.actionLabel),
                         style: OutlinedButton.styleFrom(
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 12),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                       ),
                     ),
@@ -444,12 +461,14 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
                       child: FilledButton.icon(
                         onPressed: _anyLoading ? null : _shareImage,
                         icon: _isSharing
-                            ? const LoadingSpinner(size: 18, color: Colors.white)
+                            ? const LoadingSpinner(
+                                size: 18,
+                                color: Colors.white,
+                              )
                             : const Icon(Symbols.share_rounded, size: 18),
                         label: Text(context.l10n.common_share),
                         style: FilledButton.styleFrom(
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 12),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                       ),
                     ),
@@ -465,10 +484,13 @@ class _AiShareImagePreviewState extends ConsumerState<AiShareImagePreview> {
                       icon: _isReplying
                           ? const LoadingSpinner(size: 18)
                           : const Icon(Symbols.reply_rounded, size: 18),
-                      label: Text(_isReplying ? context.l10n.share_uploading : context.l10n.share_replyToTopic),
+                      label: Text(
+                        _isReplying
+                            ? context.l10n.share_uploading
+                            : context.l10n.share_replyToTopic,
+                      ),
                       style: FilledButton.styleFrom(
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 12),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                   ),
