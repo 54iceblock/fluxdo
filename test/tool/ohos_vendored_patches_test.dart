@@ -94,6 +94,43 @@ void main() {
     });
   });
 
+  group('module.json5：应用权限集合', () {
+    // 权限收敛原则：只声明真的会用到的权限（上架审核逐项核对）。
+    // 增删权限必须同步改这里，并解包 HAP 核对 hvigor 合并后的最终集合。
+    test('requestPermissions 恰为约定的 5 项', () {
+      final src = stripComments(
+        File('ohos/entry/src/main/module.json5').readAsStringSync(),
+      );
+      final declared = RegExp(r'"name":\s*"(ohos\.permission\.[A-Z_]+)"')
+          .allMatches(src)
+          .map((m) => m.group(1)!)
+          .toList();
+      expect(declared.toSet().length, declared.length, reason: '存在重复声明');
+      expect(declared.toSet(), {
+        'ohos.permission.INTERNET',
+        'ohos.permission.GET_NETWORK_INFO',
+        // 触感反馈：缺失时真机报 HapticFeedback.vibrate error 201
+        'ohos.permission.VIBRATE',
+        'ohos.permission.CAMERA',
+        'ohos.permission.MICROPHONE',
+      });
+    });
+
+    test('user_grant 权限必须带 reason 与 usedScene', () {
+      final src = stripComments(
+        File('ohos/entry/src/main/module.json5').readAsStringSync(),
+      );
+      for (final p in ['CAMERA', 'MICROPHONE']) {
+        final block = RegExp(
+          '"name":\\s*"ohos\\.permission\\.$p"[\\s\\S]*?\\n      \\}',
+        ).firstMatch(src)?.group(0);
+        expect(block, isNotNull, reason: '未找到 $p');
+        expect(block, contains('"reason"'), reason: '$p 缺 reason');
+        expect(block, contains('"usedScene"'), reason: '$p 缺 usedScene');
+      }
+    });
+  });
+
   group('build-profile.json5：签名材料不得入库', () {
     test('signingConfigs 为空数组且无口令字段', () {
       final src = stripComments(

@@ -18,7 +18,7 @@
         "description": "$string:EntryAbility_desc",
         "icon": "$media:icon",
         "label": "$string:EntryAbility_label",
-        "startWindowIcon": "$media:icon",
+        "startWindowIcon": "$media:start_window_icon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
         "skills": [
@@ -79,6 +79,13 @@
       {
         // 判断网络可用性（连接类型变化时刷新）
         "name": "ohos.permission.GET_NETWORK_INFO"
+      },
+      {
+        // 触感反馈：Flutter HapticFeedback（长按菜单/点赞/收藏/光标滑动等约 39 处）
+        // 经引擎走 vibrator。system_grant，安装即授予、无弹窗。
+        // 未声明时真机每次调用都报 `HapticFeedback.vibrate error: 201 - Permission denied`
+        //（2026-10-27 HBN-AL00 实测，见 OHOS改动审查报告 §7.3-1）。
+        "name": "ohos.permission.VIBRATE"
       },
       {
         // 扫码登录 / 相机扫码（mobile_scanner）
