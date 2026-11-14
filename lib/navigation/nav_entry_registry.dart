@@ -14,7 +14,6 @@ import '../pages/profile_page.dart';
 import '../pages/seeking_page.dart';
 import '../pages/topics_screen.dart';
 import '../providers/discourse_providers.dart';
-import '../utils/platform_utils.dart';
 import '../providers/chat/chat_channels_provider.dart';
 import '../widgets/common/smart_avatar.dart';
 import '../widgets/notification/notification_quick_panel.dart';
@@ -30,13 +29,7 @@ class NavEntryRegistry {
 
   /// 构建完整候选列表
   static List<NavEntry> buildAll() {
-    final entries = _buildEntries();
-    // HarmonyOS：小程序依赖 inappwebview 6.2 的消息来源校验，鸿蒙侧为 6.1.5，
-    // 整体隐藏入口。
-    if (PlatformUtils.isOhos) {
-      return entries.where((e) => e.id != NavEntryIds.miniApps).toList();
-    }
-    return entries;
+    return _buildEntries();
   }
 
   static List<NavEntry> _buildEntries() {

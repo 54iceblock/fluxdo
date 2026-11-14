@@ -11,6 +11,7 @@ import 'package:fluxdo/modules/mini_apps/mini_app.dart';
 import 'package:fluxdo/modules/mini_apps/mini_app_engine.dart';
 import 'package:fluxdo/modules/mini_apps/mini_app_host_adapter.dart';
 import 'package:fluxdo/modules/mini_apps/mini_app_host_events.dart';
+import 'package:fluxdo/modules/mini_apps/mini_app_js_handler_compat.dart';
 import 'package:fluxdo/modules/mini_apps/mini_app_runtime_cache.dart';
 import 'package:fluxdo/modules/mini_apps/mini_app_runner_page.dart';
 import 'package:fluxdo/modules/mini_apps/mini_app_tab_session.dart';
@@ -80,21 +81,36 @@ class _Controller extends CfTestController {
     return CallAsyncJavaScriptResult(value: {'available': true, 'muted': true});
   }
 
+  /// 模拟 vendored 鸿蒙插件在 handler 同步部分提供的来源；null 表示平台未提供。
+  Map<String, Object?>? currentJsCallSource;
+
+  /// [withSource] 为 true 时按 mainFrame/origin/requestUrl 提供来源信息，
+  /// 否则模拟 6.1.5 无来源（非鸿蒙平台，或鸿蒙插件未提供）。
   bool sendState(
     Map state, {
     int sequence = 1,
     String? token,
+    bool withSource = false,
     bool mainFrame = true,
     String origin = 'https://linux.do',
     String? requestUrl,
   }) {
     final callback = handlers[MiniAppHostEvents.handler]!;
-    return callback(
-      // 6.1.5 无 isMainFrame/origin/requestUrl，这些参数仅为保持调用点兼容
-      [
-        {'token': token ?? eventToken, 'sequence': sequence, 'state': state},
-      ],
-    ) as bool;
+    currentJsCallSource = withSource
+        ? {
+            'isMainFrame': mainFrame,
+            'origin': origin,
+            'frameUrl': requestUrl ?? _entry.toString(),
+          }
+        : null;
+    try {
+      return callback([
+            {'token': token ?? eventToken, 'sequence': sequence, 'state': state},
+          ])
+          as bool;
+    } finally {
+      currentJsCallSource = null;
+    }
   }
 
   @override
@@ -400,10 +416,49 @@ void main() {
         'loading': true,
         'stage': '事件进度',
       };
-      // 来源校验（主框架 / origin / requestUrl）依赖 inappwebview 6.2，
-      // 6.1.5 无法覆盖；升级后恢复对应断言。
       expect(controller.sendState(loading, token: 'old'), false);
-      expect(controller.sendState(loading), true);
+      // 来源校验（有来源信息路径，鸿蒙 vendored 插件提供）：
+      // 非主框架、origin 不符、requestUrl 路径不符一律拒绝，且不消耗 sequence。
+      debugMiniAppRequireSourceOverride = true;
+      addTearDown(() => debugMiniAppRequireSourceOverride = null);
+      expect(
+        controller.sendState(loading, withSource: true, mainFrame: false),
+        false,
+        reason: 'iframe 调用被拒绝',
+      );
+      expect(
+        controller.sendState(
+          loading,
+          withSource: true,
+          origin: 'https://evil.example',
+        ),
+        false,
+      );
+      expect(
+        controller.sendState(
+          loading,
+          withSource: true,
+          requestUrl: 'https://linux.do/other',
+        ),
+        false,
+      );
+      // 鸿蒙 fail-closed：没有来源信息一律拒绝。
+      expect(controller.sendState(loading), false, reason: '无来源 fail-closed');
+      // 非鸿蒙行为：来源缺失时跳过校验（依赖 token / sequence），有值时仍严格校验。
+      debugMiniAppRequireSourceOverride = false;
+      expect(
+        controller.sendState(loading, withSource: true, mainFrame: false),
+        false,
+        reason: '非鸿蒙平台若提供了来源同样严格校验',
+      );
+      // 鸿蒙：主框架且来源匹配放行（消耗 sequence 1，与下面原有断言一致）。
+      debugMiniAppRequireSourceOverride = true;
+      expect(
+        controller.sendState(loading, withSource: true),
+        true,
+        reason: '主框架且来源匹配放行',
+      );
+      debugMiniAppRequireSourceOverride = null;
       await tester.pump();
       expect(find.text('事件进度'), findsOneWidget);
       final reads = controller.reads;

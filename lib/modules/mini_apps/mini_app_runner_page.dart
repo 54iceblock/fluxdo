@@ -875,11 +875,63 @@ class _MiniAppRunnerPageState extends ConsumerState<MiniAppRunnerPage>
     _pendingHostState = null;
   }
 
+  /// 宿主消息来源诊断状态：同一 viewEpoch 内同一 handler+原因只记首次，之后每 50 次一条。
+  int _rejectEpoch = -1;
+  final Map<String, int> _rejectCounts = {};
+  bool _sourceOkLogged = false;
+
+  Map<String, Object?> _sourceFields(MiniAppJsMessage data, String handler) => {
+    'type': 'mini_app',
+    'appId': _details.app.id,
+    'handler': handler,
+    'isMainFrame': data.isMainFrame,
+    'origin': data.origin?.toString(),
+    'requestUrl': data.requestUrl?.toString(),
+  };
+
+  void _logSourceRejected(
+    int viewEpoch,
+    String handler,
+    String reason,
+    MiniAppJsMessage data,
+  ) {
+    if (_rejectEpoch != viewEpoch) {
+      _rejectEpoch = viewEpoch;
+      _rejectCounts.clear();
+    }
+    final key = '$handler|$reason';
+    final count = _rejectCounts[key] = (_rejectCounts[key] ?? 0) + 1;
+    if (count != 1 && count % 50 != 0) return;
+    try {
+      LogWriter.instance.write({
+        'event': 'mini_app_host_message_rejected',
+        'level': 'warning',
+        'reason': reason,
+        'count': count,
+        'viewEpoch': viewEpoch,
+        ..._sourceFields(data, handler),
+      });
+    } catch (_) {}
+  }
+
+  void _logSourceOk(MiniAppJsMessage data, String handler) {
+    if (_sourceOkLogged) return;
+    _sourceOkLogged = true;
+    try {
+      LogWriter.instance.write({
+        'event': 'mini_app_host_message_source_ok',
+        'level': 'info',
+        ..._sourceFields(data, handler),
+      });
+    } catch (_) {}
+  }
+
   bool _acceptHostMessage(
     InAppWebViewController controller,
     int viewEpoch,
-    MiniAppJsMessage data,
-  ) {
+    MiniAppJsMessage data, [
+    String handler = 'unknown',
+  ]) {
     if (!(mounted &&
         _active &&
         viewEpoch == _viewEpoch &&
@@ -887,25 +939,37 @@ class _MiniAppRunnerPageState extends ConsumerState<MiniAppRunnerPage>
         AuthSession().isValid(_generation))) {
       return false;
     }
-    // 来源字段仅 inappwebview 6.2+ 提供；6.1.5 下为 null（无法校验，
-    // 依赖 host 事件 token 与 viewEpoch 兜底）。有值时严格校验。
-    if (data.isMainFrame == false) return false;
-    final origin = data.origin;
-    if (origin != null &&
-        !(origin.scheme == _entry?.scheme &&
-            origin.host == _entry?.host &&
-            origin.port == _entry?.port)) {
-      return false;
+    // 来源校验：鸿蒙由 vendored 插件提供来源，缺失即拒绝（fail-closed）；
+    // 其他平台仍是 inappwebview 6.1.5 无来源信息，为 null 时跳过
+    // （依赖 host 事件 token 与 viewEpoch 兜底），有值时严格校验。
+    final allowed = isMiniAppMessageSourceAllowed(
+      data,
+      _entry,
+      requireSource: miniAppRequiresMessageSource,
+    );
+    if (!allowed) {
+      debugPrint(
+        '[MiniApp] 拒绝来源不符的宿主消息 '
+        'isMainFrame=${data.isMainFrame} origin=${data.origin} '
+        'requestUrl=${data.requestUrl}',
+      );
+      // release 下 debugPrint 为空，写结构化应用日志（限频）供真机取证。
+      _logSourceRejected(
+        viewEpoch,
+        handler,
+        miniAppSourceRejectReason(
+              data,
+              _entry,
+              requireSource: miniAppRequiresMessageSource,
+            ) ??
+            'unknown',
+        data,
+      );
+    } else if (miniAppRequiresMessageSource) {
+      // 仅鸿蒙（来源必须存在）：每个 runner 会话记录首次放行的来源。
+      _logSourceOk(data, handler);
     }
-    final requestUrl = data.requestUrl;
-    if (requestUrl != null &&
-        !(requestUrl.scheme == _entry?.scheme &&
-            requestUrl.host == _entry?.host &&
-            requestUrl.port == _entry?.port &&
-            requestUrl.path == _entry?.path)) {
-      return false;
-    }
-    return true;
+    return allowed;
   }
 
   void _registerHostHandlers(InAppWebViewController controller, int viewEpoch) {
@@ -913,7 +977,12 @@ class _MiniAppRunnerPageState extends ConsumerState<MiniAppRunnerPage>
       controller,
       MiniAppHostEvents.handler,
       (MiniAppJsMessage data) {
-        if (!_acceptHostMessage(controller, viewEpoch, data) ||
+        if (!_acceptHostMessage(
+              controller,
+              viewEpoch,
+              data,
+              MiniAppHostEvents.handler,
+            ) ||
             data.args.length != 1 ||
             data.args.first is! Map) {
           return false;
@@ -945,7 +1014,12 @@ class _MiniAppRunnerPageState extends ConsumerState<MiniAppRunnerPage>
       MiniAppRuntimeCache.handler,
       (MiniAppJsMessage data) async {
         if (_engine != MiniAppEngine.lightweight ||
-            !_acceptHostMessage(controller, viewEpoch, data) ||
+            !_acceptHostMessage(
+              controller,
+              viewEpoch,
+              data,
+              MiniAppRuntimeCache.handler,
+            ) ||
             data.args.length != 1 ||
             data.args.first is! Map) {
           return null;
@@ -956,7 +1030,12 @@ class _MiniAppRunnerPageState extends ConsumerState<MiniAppRunnerPage>
           final result = session == null
               ? await MiniAppRuntimeCache.instance.handle(request)
               : await session.request('runtimeAsset', request);
-          return _acceptHostMessage(controller, viewEpoch, data)
+          return _acceptHostMessage(
+                controller,
+                viewEpoch,
+                data,
+                MiniAppRuntimeCache.handler,
+              )
               ? result
               : null;
         } catch (_) {
@@ -1876,7 +1955,8 @@ class _MiniAppRunnerPageState extends ConsumerState<MiniAppRunnerPage>
           soundAvailable: _active && _compatible && !_soundBusy,
           muted: _muted != false,
           canRotate: PlatformUtils.isMobile,
-          canDetach: !widget.independentWindow,
+          // HarmonyOS 没有 com.fluxdo/mini_app_windows 原生实现，不提供独立窗口
+          canDetach: !widget.independentWindow && !PlatformUtils.isOhos,
           canMinimize: !widget.asPanel && _tab != null,
           canRefresh: !_switchingEngine && !_actionBusy,
           blurReady: blurReady,

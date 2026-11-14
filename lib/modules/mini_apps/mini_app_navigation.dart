@@ -29,8 +29,6 @@ Future<void> openMiniAppGallery(BuildContext context) async {
 
 /// Returns false for non-app routes so callers preserve their existing routing.
 Future<bool> openMiniAppLink(BuildContext context, String value) async {
-  // HarmonyOS：小程序整体关闭，链接交回普通外链流程
-  if (PlatformUtils.isOhos) return false;
   final uri = MiniAppUrl.parse(value, AppConstants.baseUrl);
   if (uri == null) return false;
   final id = MiniAppUrl.appId(uri);

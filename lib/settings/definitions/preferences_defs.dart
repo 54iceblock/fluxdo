@@ -163,9 +163,7 @@ List<SettingsGroup> buildPreferencesGroups(BuildContext context) {
       title: l10n.preferences_interaction,
       icon: Symbols.gesture_rounded,
       items: [
-        PlatformConditionalModel(
-          condition: () => !PlatformUtils.isOhos,
-          inner: ActionModel(
+        ActionModel(
           id: 'miniAppEngine',
           title: l10n.miniApp_engine,
           subtitle: l10n.miniApp_engineSettingDescription,
@@ -187,7 +185,6 @@ List<SettingsGroup> buildPreferencesGroups(BuildContext context) {
             }
           },
         ),
-        ),
         PlatformConditionalModel(
           inner: SwitchModel(
             id: 'miniAppPullEnabled',
@@ -199,7 +196,7 @@ List<SettingsGroup> buildPreferencesGroups(BuildContext context) {
             onChanged: (ref, v) =>
                 ref.read(preferencesProvider.notifier).setMiniAppPullEnabled(v),
           ),
-          condition: () => !PlatformUtils.isDesktop && !PlatformUtils.isOhos,
+          condition: () => !PlatformUtils.isDesktop,
         ),
         PlatformConditionalModel(
           inner: SwitchModel(

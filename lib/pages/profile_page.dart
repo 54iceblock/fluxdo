@@ -15,7 +15,6 @@ import 'forum_preferences/forum_preferences_page.dart';
 import 'groups_page.dart';
 import 'forum_preferences/status_dialog.dart';
 import '../services/preloaded_data_service.dart';
-import '../utils/platform_utils.dart';
 import 'login_page.dart';
 import '../widgets/auth/qr_login_sheet.dart';
 import 'browsing_history_page.dart';
@@ -946,13 +945,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   Widget _buildSystemAndToolsCard(ThemeData theme) {
     return SegmentedCardGroup(
       children: [
-        // HarmonyOS：小程序入口整体隐藏（inappwebview 6.1.5 无消息来源校验）
-        if (!PlatformUtils.isOhos)
-          _buildOptionTile(
-            icon: Symbols.apps_rounded,
-            title: context.l10n.miniApp_title,
-            onTap: () => openMiniAppGallery(context),
-          ),
+        _buildOptionTile(
+          icon: Symbols.apps_rounded,
+          title: context.l10n.miniApp_title,
+          onTap: () => openMiniAppGallery(context),
+        ),
         _buildOptionTile(
           icon: Symbols.language_rounded,
           iconColor: context.appColors.blue,
