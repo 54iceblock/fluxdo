@@ -1,6 +1,6 @@
 #!/bin/bash
 # 交叉编译 QuickJS（quickjs-ng）+ 最小桥接 → HarmonyOS 原生库 libohos_quickjs.so
-# 依赖 WSL 内已有的 OHOS clang 包装器（~/ohos-bin/clang-<arch>，见 tools/build-doh-ohos.sh）
+# 依赖 WSL 内已有的 OHOS clang 包装器（~/ohos-bin/clang-<arch>；原由已删除的 build-doh-ohos.sh 生成，需手工保证存在）
 set -euo pipefail
 
 REPO_WIN="/mnt/c/Users/iceblock/fluxdo"

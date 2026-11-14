@@ -1,6 +1,6 @@
 #!/bin/bash
 # 交叉编译 native_animated_image 的 Rust codec（GIF/APNG/动图 WebP）到 HarmonyOS
-# 依赖 WSL 里已配置好的 OHOS 交叉环境（见 tools/build-doh-ohos.sh）
+# 依赖 WSL 里已配置好的 OHOS 交叉环境（~/ohos-bin/clang-<arch> 包装器与 ~/.cargo/config.toml；原由已删除的 build-doh-ohos.sh 生成，需按本脚本下方的 config 手工保证存在）
 set -euo pipefail
 
 REPO_WIN="/mnt/c/Users/iceblock/fluxdo"

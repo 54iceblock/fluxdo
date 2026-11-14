@@ -73,7 +73,7 @@
     // 新增依赖时同样要解包 HAP 核对最终权限集合，不能只看本文件。
     "requestPermissions": [
       {
-        // 全部网络请求（dio / WebView / DOH 代理）
+        // 全部网络请求（dio（网络核心）/ WebView）
         "name": "ohos.permission.INTERNET"
       },
       {
