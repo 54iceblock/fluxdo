@@ -11,12 +11,24 @@
   应用侧解析代码无需改动。
 - 每个请求都打印到 stdout，便于在 PC 侧确认应用真的打到了 mock。
 
-启动：python tools/mock-discourse/server.py [--port 8080]
+启动：python tools/mock-discourse/server.py [--port 8080] [--auto-alert 30]
+
+真机专项用例（审查报告 §7.2 / §7.3）：
+- 话题 1004：首楼 EXIF 方向（/mock/exif-{0,1,3,6,8}.jpg），二楼大图
+  （/mock/big-{4000x3000,8192x8192}.{jpg,avif}）。图片用 Pillow 现场生成并缓存到
+  系统临时目录；8192² 首次生成较慢，装机前先预热：
+    for f in exif-0.jpg exif-1.jpg exif-3.jpg exif-6.jpg exif-8.jpg \\
+             big-4000x3000.jpg big-4000x3000.avif big-8192x8192.jpg big-8192x8192.avif; do
+      curl -s -o /dev/null -w "%{http_code} $f\\n" http://127.0.0.1:8080/mock/$f; done
+- 本地通知：MessageBus 长轮询 /message-bus/<id>/poll，PC 侧触发：
+    curl "http://127.0.0.1:8080/mock/trigger-alert?topic_id=1001&post_number=2&type=2"
 """
 
 import argparse
+import io
 import json
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -157,7 +169,11 @@ TOPICS = [
     make_topic(1001, "【Mock】HarmonyOS 真机测试帖 1", 12, 1),
     make_topic(1002, "【Mock】登录后功能验证帖 2", 8, 2),
     make_topic(1003, "【Mock】发帖/回复链路验证帖 3", 3, 3),
+    make_topic(1004, "【Mock】图片方向（EXIF）与大图性能验证帖 4", 2, 2),
 ]
+
+# 话题 1004 的测试 ID（审查报告 §7.3-3 图片方向、§7.2 大图降采样 / T10）
+IMAGE_TOPIC_ID = 1004
 
 
 def make_post(post_number: int, topic_id: int, cooked: str | None = None) -> dict:
@@ -200,12 +216,228 @@ def make_post(post_number: int, topic_id: int, cooked: str | None = None) -> dic
     }
 
 
+# ---------------------------------------------------------------------------
+# 测试图片（审查报告 §7.3-3 EXIF 方向、§7.2 / T10 大图降采样）
+#
+# 运行时用 Pillow 生成并缓存（内存 + 系统临时目录），不往仓库放大文件。
+# 没装 Pillow 时这些路由返回 501，其余 mock 功能不受影响：
+#   python -m pip install Pillow     # AVIF 需 Pillow >= 11.3
+# ---------------------------------------------------------------------------
+
+# EXIF Orientation 取值 → 说明。0 表示「不写 EXIF」（验证 orientation:401 是否只在
+# 无 EXIF 时出现）。存储像素已做逆变换：查看器正确应用 EXIF 后，应看到
+# 「红条在上、文字正立」；方向处理错误时红条会出现在下/左/右侧。
+EXIF_CASES = {
+    0: "无 EXIF",
+    1: "Orientation=1（正常）",
+    3: "Orientation=3（旋转 180°）",
+    6: "Orientation=6（需顺时针 90°）",
+    8: "Orientation=8（需逆时针 90°）",
+}
+
+# 大图：(宽, 高)。按扩展名决定格式（.jpg / .avif）。
+LARGE_IMAGES = {
+    "4000x3000": (4000, 3000),
+    "8192x8192": (8192, 8192),
+}
+
+_IMAGE_CACHE: dict = {}
+_IMAGE_LOCK = threading.Lock()
+_IMAGE_DISK_CACHE = Path(__import__("tempfile").gettempdir()) / "fluxdo-mock-images"
+
+
+def _require_pillow():
+    try:
+        from PIL import Image, ImageDraw  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _draw_upright(w: int, h: int, label: str):
+    """画一张「方向一眼可辨」的图：顶部红条 + 左上角绿块 + 中央文字。"""
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGB", (w, h), (235, 235, 235))
+    d = ImageDraw.Draw(img)
+    bar = max(h // 8, 8)
+    d.rectangle([0, 0, w, bar], fill=(220, 40, 40))           # 顶部红条
+    d.rectangle([0, 0, w // 6, bar * 2], fill=(40, 170, 60))  # 左上绿块
+    step = max(min(w, h) // 16, 16)
+    for x in range(0, w, step):
+        d.line([(x, bar), (x, h)], fill=(200, 200, 200), width=max(step // 64, 1))
+    for y in range(bar, h, step):
+        d.line([(0, y), (w, y)], fill=(200, 200, 200), width=max(step // 64, 1))
+    try:
+        font = ImageFont.load_default(size=max(min(w, h) // 12, 12))
+    except TypeError:  # Pillow < 10.1 不支持 size
+        font = ImageFont.load_default()
+    d.text((w // 10, h // 2), f"TOP {label}", fill=(20, 20, 20), font=font)
+    return img
+
+
+def _encode(img, fmt: str, exif_orientation: int = 0) -> bytes:
+    from PIL import Image
+
+    buf = io.BytesIO()
+    if fmt == "jpg":
+        kwargs = {"quality": 85}
+        if exif_orientation:
+            exif = Image.Exif()
+            exif[0x0112] = exif_orientation  # Orientation
+            kwargs["exif"] = exif.tobytes()
+        img.save(buf, "JPEG", **kwargs)
+    elif fmt == "avif":
+        img.save(buf, "AVIF", quality=60, speed=10)
+    else:
+        raise ValueError(fmt)
+    return buf.getvalue()
+
+
+def make_exif_image(orientation: int) -> bytes:
+    """生成 EXIF 方向用例：像素按方向做逆变换，正确显示时应正立。"""
+    from PIL import Image
+
+    upright = _draw_upright(800, 600, f"EXIF {orientation}")
+    # exif_transpose 对 3/6/8 分别做 ROTATE_180 / ROTATE_270 / ROTATE_90，
+    # 存储像素取其逆：3→ROTATE_180，6→ROTATE_90，8→ROTATE_270。
+    inverse = {
+        3: Image.Transpose.ROTATE_180,
+        6: Image.Transpose.ROTATE_90,
+        8: Image.Transpose.ROTATE_270,
+    }.get(orientation)
+    stored = upright.transpose(inverse) if inverse is not None else upright
+    return _encode(stored, "jpg", exif_orientation=orientation)
+
+
+def make_large_image(key: str, fmt: str) -> bytes:
+    w, h = LARGE_IMAGES[key]
+    return _encode(_draw_upright(w, h, f"{key} {fmt}"), fmt)
+
+
+def cached_image(name: str, factory) -> bytes:
+    """内存 + 临时目录两级缓存（8192² AVIF 编码可能要十几秒）。"""
+    with _IMAGE_LOCK:
+        if name in _IMAGE_CACHE:
+            return _IMAGE_CACHE[name]
+        disk = _IMAGE_DISK_CACHE / name
+        if disk.exists():
+            data = disk.read_bytes()
+        else:
+            t0 = time.time()
+            data = factory()
+            _IMAGE_DISK_CACHE.mkdir(parents=True, exist_ok=True)
+            disk.write_bytes(data)
+            sys.stdout.write(f"[mock] 生成 {name}: {len(data)} B, {time.time() - t0:.1f}s\n")
+            sys.stdout.flush()
+        _IMAGE_CACHE[name] = data
+        return data
+
+
+def image_topic_cooked_exif() -> str:
+    items = "".join(
+        f'<p>{desc}：</p><p><img src="/mock/exif-{o}.jpg" alt="exif-{o}" '
+        f'width="400" height="300"></p>'
+        for o, desc in EXIF_CASES.items()
+    )
+    return (
+        "<p>【Mock】EXIF 方向验证（审查报告 §7.3-3）。</p>"
+        "<p>判定：每张图都应「红条在上、绿块在左上、文字正立」。"
+        "依次检查：正文显示 → 大图查看器 → 保存到相册后在图库打开。</p>"
+        + items
+    )
+
+
+def image_topic_cooked_large() -> str:
+    items = "".join(
+        f'<p>{key} {fmt.upper()}：</p><p><img src="/mock/big-{key}.{fmt}" '
+        f'alt="big-{key}-{fmt}" width="{w}" height="{h}"></p>'
+        for key, (w, h) in LARGE_IMAGES.items()
+        for fmt in ("jpg", "avif")
+    )
+    return (
+        "<p>【Mock】大图降采样性能验证（T10）。</p>"
+        "<p>记录：首屏出图耗时、打开大图查看器耗时、PSS 峰值与退出后回落"
+        "（hidumper --mem &lt;pid&gt;）。首次请求时服务端现场生成，可能较慢，"
+        "先用 curl 预热：见 server.py 顶部说明。</p>"
+        + items
+    )
+
+
+# ---------------------------------------------------------------------------
+# MessageBus 长轮询（审查报告 §7.2 本地通知）
+#
+# 应用订阅 /notification-alert/{userId}，收到后调 LocalNotificationService.show()。
+# 从 PC 侧触发一条提醒：
+#   curl "http://127.0.0.1:8080/mock/trigger-alert?topic_id=1001&post_number=2&type=2"
+#   type: 1=提及 2=回复 6=私信（private_message 走 message: payload）
+# 或启动时加 --auto-alert 30 每 30 秒自动推一条。
+# ---------------------------------------------------------------------------
+
+ALERT_CHANNEL = f"/notification-alert/{MOCK_USER['id']}"
+_BUS_COND = threading.Condition()
+_BUS_MESSAGES: list = []  # [{"channel", "message_id", "data"}]
+LONG_POLL_SECONDS = 25
+
+
+def bus_last_id(channel: str) -> int:
+    # 空频道记 0（而非 -1）：客户端拿到 /__status=0 后不再是「首次订阅」，
+    # 之后的消息 id 从 1 开始，`> last` 判断才成立。
+    ids = [m["message_id"] for m in _BUS_MESSAGES if m["channel"] == channel]
+    return max(ids) if ids else 0
+
+
+def bus_publish_alert(topic_id: int = 1001, post_number: int = 2, ntype: int = 2,
+                      excerpt: str = "") -> dict:
+    t = next((x for x in TOPICS if x["id"] == topic_id), TOPICS[0])
+    with _BUS_COND:
+        msg = {
+            "channel": ALERT_CHANNEL,
+            "message_id": bus_last_id(ALERT_CHANNEL) + 1,
+            "data": {
+                "notification_type": ntype,
+                "post_number": post_number,
+                "topic_title": t["title"],
+                "topic_id": t["id"],
+                "excerpt": excerpt or f"【Mock】本地通知测试 {datetime.now(timezone.utc):%H:%M:%S}",
+                "username": "mock_sender",
+                "post_url": f"/t/{t['slug']}/{t['id']}/{post_number}",
+            },
+        }
+        _BUS_MESSAGES.append(msg)
+        _BUS_COND.notify_all()
+    sys.stdout.write(f"[mock] 推送提醒 #{msg['message_id']} -> {ALERT_CHANNEL}\n")
+    sys.stdout.flush()
+    return msg
+
+
+def bus_collect(subs: dict) -> list:
+    """按客户端 {channel: last_id} 计算要回的消息（需持有 _BUS_COND）。"""
+    out = []
+    status = {}
+    for ch, last in subs.items():
+        current = bus_last_id(ch)
+        if last < 0:
+            # 首次订阅：只告诉客户端当前位置，不回放历史（与 Discourse 一致）
+            status[ch] = current
+            continue
+        out.extend(m for m in _BUS_MESSAGES
+                   if m["channel"] == ch and m["message_id"] > last)
+    if status:
+        out.insert(0, {"channel": "/__status", "message_id": -1, "data": status})
+    return out
+
+
 def topic_detail(tid: int) -> dict:
     t = next((x for x in TOPICS if x["id"] == tid), TOPICS[0])
     posts = [make_post(i, t["id"]) for i in range(1, min(t["posts_count"], 6) + 1)]
+    if posts and t["id"] == IMAGE_TOPIC_ID:
+        posts[0]["cooked"] = image_topic_cooked_exif()
+        if len(posts) > 1:
+            posts[1]["cooked"] = image_topic_cooked_large()
     # 首帖插一张 AVIF：用于验证 OHOS 上的 AVIF 解码链路
     # （自研 libavif + dav1d + 后台 isolate + maxDim 降采样）。
-    if posts:
+    elif posts:
         posts[0]["cooked"] = (
             "<p>【Mock】AVIF 解码验证：下面这张图是 AVIF 格式。</p>"
             '<p><img src="/mock/avif.avif" alt="avif" width="600"></p>'
@@ -490,6 +722,54 @@ class Handler(BaseHTTPRequestHandler):
             self._send(png, content_type="image/png")
             return
 
+        if path.startswith("/mock/exif-") and path.endswith(".jpg"):
+            try:
+                orientation = int(path[len("/mock/exif-"):-len(".jpg")])
+            except ValueError:
+                orientation = -1
+            if orientation not in EXIF_CASES:
+                self._send({}, status=404)
+                return
+            if not _require_pillow():
+                self._send({"error": "需要 Pillow：python -m pip install Pillow"}, status=501)
+                return
+            data = cached_image(f"exif-{orientation}.jpg",
+                                lambda: make_exif_image(orientation))
+            self._send(data, content_type="image/jpeg")
+            return
+
+        if path.startswith("/mock/big-"):
+            name = path[len("/mock/big-"):]
+            key, _, fmt = name.rpartition(".")
+            if key not in LARGE_IMAGES or fmt not in ("jpg", "avif"):
+                self._send({}, status=404)
+                return
+            if not _require_pillow():
+                self._send({"error": "需要 Pillow：python -m pip install Pillow"}, status=501)
+                return
+            try:
+                data = cached_image(f"big-{key}.{fmt}", lambda: make_large_image(key, fmt))
+            except Exception as e:  # 旧版 Pillow 无 AVIF 编码器
+                self._send({"error": f"生成失败：{e}"}, status=501)
+                return
+            self._send(data, content_type="image/jpeg" if fmt == "jpg" else "image/avif")
+            return
+
+        if path == "/mock/trigger-alert":
+            def _qi(name: str, default: int) -> int:
+                try:
+                    return int(q.get(name, [default])[0])
+                except ValueError:
+                    return default
+            msg = bus_publish_alert(
+                topic_id=_qi("topic_id", 1001),
+                post_number=_qi("post_number", 2),
+                ntype=_qi("type", 2),
+                excerpt=q.get("excerpt", [""])[0],
+            )
+            self._send(msg)
+            return
+
         if path.startswith("/mock/avif"):
             # AVIF 用例图：直接复用仓库里的探针样图 assets/probe/avif-probe.avif。
             # 用途：在 OHOS 上验证 AVIF 解码链路（自研 libavif + dav1d + 后台 isolate）。
@@ -511,6 +791,29 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         u = urlparse(self.path)
         path = u.path.rstrip("/") or "/"
+
+        # MessageBus 长轮询：POST /message-bus/<clientId>/poll，表单为 {channel: last_id}
+        # （键是 URL 编码的频道名，需 parse_qs 解码）。统一回 application/json，
+        # 客户端据此走整体读取分支，不需要实现 chunked 分隔符。
+        if path.startswith("/message-bus/") and path.endswith("/poll"):
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length).decode("utf-8", "replace") if length else ""
+            subs = {}
+            for k, v in parse_qs(raw).items():
+                if k.startswith("__"):
+                    continue
+                try:
+                    subs[k] = int(v[0])
+                except (ValueError, IndexError):
+                    pass
+            with _BUS_COND:
+                out = bus_collect(subs)
+                if not out:
+                    _BUS_COND.wait(LONG_POLL_SECONDS)
+                    out = bus_collect(subs)
+            self._send(out)
+            return
+
         form = self._read_form()
 
         if path == "/session.json":
@@ -585,8 +888,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--host", default="0.0.0.0")
+    ap.add_argument("--auto-alert", type=int, default=0, metavar="SECONDS",
+                    help="每隔 N 秒自动推一条 /notification-alert（0=关闭）")
     args = ap.parse_args()
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
+    srv.daemon_threads = True  # 长轮询线程不阻塞 Ctrl+C 退出
+    if args.auto_alert > 0:
+        def _loop():
+            while True:
+                time.sleep(args.auto_alert)
+                bus_publish_alert()
+        threading.Thread(target=_loop, daemon=True).start()
     print(f"[mock] listening on http://{args.host}:{args.port}", flush=True)
     try:
         srv.serve_forever()
