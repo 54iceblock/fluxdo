@@ -34,6 +34,7 @@ const Set<String> _ohosOnlyOverrides = <String>{
   'sqflite',
   'flutter_inappwebview',
   'flutter_inappwebview_platform_interface',
+  'flutter_inappwebview_ohos',
   'ota_update',
 };
 

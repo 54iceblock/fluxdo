@@ -701,13 +701,11 @@ packages:
     source: git
     version: "1.1.2"
   flutter_inappwebview_ohos:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      path: flutter_inappwebview_ohos
-      ref: "389cf40dbb647f1df7272de5ea6b3401efe27a75"
-      resolved-ref: "389cf40dbb647f1df7272de5ea6b3401efe27a75"
-      url: "https://gitcode.com/CPF-Flutter/flutter_inappwebview.git"
-    source: git
+      path: "packages/flutter_inappwebview_ohos"
+      relative: true
+    source: path
     version: "1.1.3"
   flutter_inappwebview_platform_interface:
     dependency: "direct overridden"
