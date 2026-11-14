@@ -35,6 +35,52 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
+MOCK_MINIAPP_ID = "01a1b3ac-b68b-7d49-883d-51d49c784168"
+
+# 主框架调用 fluxdoMiniAppState / fluxdoMiniAppRuntime，并内嵌一个 iframe 做同样调用。
+# handler 返回值：宿主拒绝（来源不符 / token 不符）为 false/null，因此这里的「被拒绝」
+# 既可能是来源校验、也可能是 token 校验；以应用日志中的
+# 应用日志 app_log.jsonl 的 `mini_app_host_message_source_ok` / `mini_app_host_message_rejected`
+# （来源校验在 token 校验之前，假 token 也会产生 source_ok）与 hilog
+# `JSBridgeInterface callHandler ... isMainFrame=`（Log.w）为准。
+# 注意：必须把「小程序引擎」设为 web（默认 lightweight 会加载 /mini-app-api/frame-host，mock 没有）；
+# fluxdoMiniAppRuntime 仅 lightweight 引擎才会进入来源校验，web 引擎下只有 fluxdoMiniAppState 产生应用日志。
+MINIAPP_TEST_HTML = """<!doctype html><meta charset=utf-8>
+<title>miniapp source test</title>
+<body style="font:14px sans-serif">
+<h3>主框架</h3><pre id=main>pending</pre>
+<h4>iframe A：不同目录 /mock/miniapp-iframe（预期：被拒绝 not_main_frame）</h4>
+<iframe src="/mock/miniapp-iframe" style="width:100%;height:180px"></iframe>
+<h4>iframe B：同 origin 同目录 /apps/iframe-same-dir（风险演示：ROM 返回目录形式 /apps/，
+预期【无法区分】→ 会被当作主框架放行，由 token 校验兜底；若被拒绝则说明 ROM 行为已变）</h4>
+<iframe src="/apps/iframe-same-dir" style="width:100%;height:180px"></iframe>
+<script>
+async function call(name){
+  try { return JSON.stringify(await flutter_inappwebview.callHandler(name,{token:'bogus',sequence:1,state:{}})); }
+  catch(e){ return 'ERR '+e; }
+}
+window.addEventListener('flutterInAppWebViewPlatformReady', async () => {
+  const s = await call('fluxdoMiniAppState');
+  const r = await call('fluxdoMiniAppRuntime');
+  document.getElementById('main').textContent = 'state='+s+' runtime='+r;
+});
+</script>"""
+
+MINIAPP_IFRAME_HTML = """<!doctype html><meta charset=utf-8>
+<h3>iframe</h3><pre id=out>pending</pre>
+<script>
+(async () => {
+  const out = [];
+  for (const n of ['fluxdoMiniAppState','fluxdoMiniAppRuntime']) {
+    try { out.push(n+'='+JSON.stringify(await window.top.flutter_inappwebview.callHandler(n,{token:'bogus',sequence:1,state:{}}))); }
+    catch(e){ out.push(n+' ERR '+e); }
+    try { out.push(n+'(local)='+JSON.stringify(await flutter_inappwebview.callHandler(n,{token:'bogus',sequence:1,state:{}}))); }
+    catch(e){ out.push(n+'(local) ERR '+e); }
+  }
+  document.getElementById('out').textContent = out.join('\\n');
+})();
+</script>"""
+
 # 仓库根（本文件在 <repo>/ohos/tools/mock-discourse/ 下）
 _ROOT = Path(__file__).resolve().parents[3]
 
@@ -550,7 +596,13 @@ class Handler(BaseHTTPRequestHandler):
                 "cf_clearance=mockcf; Path=/; Max-Age=86400")
 
     def _send(self, obj, status: int = 200, content_type: str = "application/json"):
-        body = obj if isinstance(obj, bytes) else json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        # str（HTML 等）按原文发送；其余对象按 JSON 序列化
+        if isinstance(obj, bytes):
+            body = obj
+        elif isinstance(obj, str):
+            body = obj.encode("utf-8")
+        else:
+            body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -578,6 +630,28 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("/", "/index.html"):
             self._send(make_home_html(), content_type="text/html; charset=utf-8")
+            return
+
+        # ---- 小程序来源校验用例（device-test-plan MA1~MA3）----
+        # 目录 / 详情 / 入口页：入口页主框架与内嵌 iframe 各调用一次宿主 handler，
+        # 页面上和 /mock/miniapp-log 都能看到结果。
+        if path == "/mini-app-api/apps.json":
+            self._send({"apps": [{"app_id": MOCK_MINIAPP_ID, "name": "来源校验测试",
+                                  "description": "主框架 / iframe 调用宿主 handler"}],
+                        "page": 0, "per_page": 20, "total": 1})
+            return
+        if path == f"/mini-app-api/production/{MOCK_MINIAPP_ID}/info":
+            host = self.headers.get("Host", "127.0.0.1:8080")
+            self._send({"app": {"app_id": MOCK_MINIAPP_ID, "name": "来源校验测试",
+                                "description": "主框架 / iframe 调用宿主 handler"},
+                        "configuration": {
+                            "embedUrl": f"http://{host}/apps/{MOCK_MINIAPP_ID}?embed_mode=true"}})
+            return
+        if path == f"/apps/{MOCK_MINIAPP_ID}":
+            self._send(MINIAPP_TEST_HTML, content_type="text/html; charset=utf-8")
+            return
+        if path in ("/mock/miniapp-iframe", "/apps/iframe-same-dir"):
+            self._send(MINIAPP_IFRAME_HTML, content_type="text/html; charset=utf-8")
             return
 
         if path == "/session/csrf":
