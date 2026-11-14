@@ -1,4 +1,4 @@
-﻿# FluxDO HarmonyOS 移植环境变量（每次 pwsh 调用前 dot-source 本文件）
+# FluxDO HarmonyOS 移植环境变量（每次 pwsh 调用前 dot-source 本文件）
 # 用法: . C:\Users\iceblock\fluxdo\tools\env.ps1
 
 $WS = 'C:\Users\iceblock\fluxdo'
@@ -25,7 +25,10 @@ $env:TEMP = Join-Path $WS '.tmp'
 $env:TMP = Join-Path $WS '.tmp'
 New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
 $env:FLUTTER_ROOT = $FLUTTER
-$env:PUB_HOSTED_URL = 'https://pub.flutter-io.cn'
+# 同步上游 v0.2.30 起，pubspec.lock 以上游为基线（源地址 pub.dev）。用 pub.flutter-io.cn 镜像时，
+# pub 会把它当作另一个源而整体重新解析，拉进不支持 TargetPlatform.ohos 的 material_ui，鸿蒙编译失败。
+# 所以 pub 源固定用 pub.dev；Flutter 引擎产物仍走下面的镜像。
+$env:PUB_HOSTED_URL = 'https://pub.dev'
 $env:FLUTTER_STORAGE_BASE_URL = 'https://storage.flutter-io.cn'
 
 # git 的 schannel 在本机不可用，统一走 openssl 后端
