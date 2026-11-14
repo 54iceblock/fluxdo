@@ -1,9 +1,8 @@
-[submodule "core/doh_proxy"]
-	path = core/doh_proxy
-	url = https://github.com/Lingyan000/fluxdo_doh.git
 [submodule "packages/fluxdo_render"]
 	path = packages/fluxdo_render
-	# OHOS 移植：指向 fork 的 ohos-port 分支（上游 main + TargetPlatform.ohos 补丁 8c18e80）。
-	# 上游合入该补丁后改回 https://github.com/Lingyan000/fluxdo_render.git 即可。
+	# OHOS 移植：指向 fork 的 ohos-port-v0.2.30 分支 = 上游 main aa61104 + 两个本地补丁：
+	#   ed433bd fix(render): 补 TargetPlatform.ohos 分支（原 8c18e80）
+	#   08b4719 perf(render): ParagraphLayoutCache.evictIdle 只释放离屏段落（原 bbd1a81）
+	# 旧分支 ohos-port（基于 5bfd16b）保留不动。上游合入补丁后改回 https://github.com/Lingyan000/fluxdo_render.git。
 	url = https://github.com/54iceblock/fluxdo_render.git
-	branch = ohos-port
+	branch = ohos-port-v0.2.30
