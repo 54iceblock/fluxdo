@@ -120,3 +120,12 @@ oh_modules/
 packages/*/ohos/BuildProfile.ets
 packages/*/ohos/oh-package-lock.json5
 
+
+# 鸿蒙移植的内部文档只保留在本地，不推送到 GitHub
+/ohos/docs/
+/docs/ohos/
+/docs/engine-gl-reclaim-research.md
+/docs/handoff-2026-10-28.md
+/docs/memory-analysis.md
+/docs/tag-blocking-implementation.md
+/docs/tag-blocking-review.md
