@@ -105,20 +105,44 @@ class RawCookieWriterFallback {
       final cookies = await _cookieManager.getCookies(url: webUri);
       final matching = cookies.where((c) => c.name == name).toList();
       if (matching.isNotEmpty) {
-        var deleted = 0;
+        // 作用域目标集合：元数据完整的 cookie 按真实 (domain, path) 精确删；
+        // 平台读不到 domain / path 时（如 HarmonyOS 的 fetchCookieSync 只有
+        // name=value），无法判断同名条目属于 host-only 还是 Domain= 变体，
+        // 只发 host-only + path=/ 会漏掉域 cookie，导致“两条同名、删不掉”。
+        // 此时退回调用方给出的候选 domain × path 全组合，逐个发过期。
+        // 规则只取决于“元数据是否存在”，与 cookie 名无关。
+        final targets = <(String?, String)>{};
         for (final c in matching) {
+          final domain = c.domain;
+          final path = c.path;
+          if (domain != null && path != null) {
+            targets.add((domain, path));
+            continue;
+          }
+          final domains = domain != null
+              ? <String?>[domain]
+              : domainCandidates;
+          final paths = path != null ? <String>[path] : pathCandidates;
+          for (final d in domains) {
+            for (final p in paths) {
+              targets.add((d, p));
+            }
+          }
+        }
+        var deleted = 0;
+        for (final (domain, path) in targets) {
           try {
             final ok = await _cookieManager.deleteCookie(
               url: webUri,
               name: name,
-              path: c.path ?? '/',
-              domain: c.domain,
+              path: path,
+              domain: domain,
             );
             if (ok) deleted++;
           } catch (e) {
             debugPrint(
               '[RawCookieWriterFallback] deleteCookie(real $name, '
-              '${c.domain}, ${c.path}) failed: $e',
+              '$domain, $path) failed: $e',
             );
           }
         }

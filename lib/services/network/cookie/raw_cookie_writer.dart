@@ -5,6 +5,7 @@ import 'package:enhanced_cookie_jar/enhanced_cookie_jar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../../../utils/platform_utils.dart';
 import 'cookie_full_info.dart';
 import 'cookie_logger.dart';
 import 'raw_cookie_writer_fallback.dart';
@@ -25,7 +26,7 @@ class CookieStoreReadTimeout extends TimeoutException {
 ///
 /// 平台支持矩阵:
 /// - Android / iOS / macOS: native method channel `com.fluxdo/raw_cookie`
-/// - Windows / Linux: Dart 层 [RawCookieWriterFallback] 包装
+/// - Windows / Linux / HarmonyOS: Dart 层 [RawCookieWriterFallback] 包装
 ///   flutter_inappwebview 的 CookieManager (无需 native)
 class RawCookieWriter {
   RawCookieWriter._() : _forceNativeChannel = false;
@@ -56,8 +57,16 @@ class RawCookieWriter {
       io.Platform.isMacOS;
 
   /// 当前平台是否走 Dart fallback (flutter_inappwebview CookieManager)。
+  ///
+  /// HarmonyOS 没有 `com.fluxdo/raw_cookie` 原生通道（`dart:io` 的
+  /// isAndroid/isIOS/isMacOS 在 OHOS 上全为 false，也不在 Windows/Linux 之列）。
+  /// 之前 OHOS 会落到 MethodChannel 分支并吞掉 MissingPluginException：
+  /// 写入恒返回 false、读取恒返回空列表，Sentinel 的“写入→回读”校验永远失败
+  /// （`Cookie 同步未完成: _t (failed)`）。改走插件 CookieManager：
+  /// 读取只能拿到 name/value（其余元数据为 null），校验逻辑对 null 元数据本就放行。
   bool get _hasDartFallback =>
-      !_forceNativeChannel && (io.Platform.isWindows || io.Platform.isLinux);
+      !_forceNativeChannel &&
+      (io.Platform.isWindows || io.Platform.isLinux || PlatformUtils.isOhos);
 
   /// 是否支持当前平台 (native 或 Dart fallback 任一可用即支持)。
   bool get isSupported => _hasNativeChannel || _hasDartFallback;
