@@ -161,7 +161,8 @@ export default class EntryAbility extends FlutterAbility {
    *
    * 进后台不需要额外处理：引擎自带 GpuReclaim 会在 paused 后发 memoryPressure
    * 并拆交换链，Dart 侧 _enterBackground 也会清缓存。后台 GL 的额外释放方案
-   * 已真机验证无收益（见 docs/engine-gl-reclaim-research.md §0.0）。
+   * 已真机验证无收益：不采样时后台 GL 不增长，此前看到的上涨是对冻结进程
+   * 反复调用 hidumper --mem 引起的。
    */
   onMemoryLevel(level: AbilityConstant.MemoryLevel): void {
     super.onMemoryLevel(level);
