@@ -28,10 +28,11 @@ robocopy C:\Users\iceblock\fluxdo\tools C:\Users\iceblock\fluxdo\repo\ohos\tools
 | `verify-profile.bat` | 验证 p7b profile |
 | `build-avif-ohos.sh` | WSL 交叉编译 libavif + dav1d → `libohos_avif.so` |
 | `build-quickjs-ohos.sh` | WSL 编译 QuickJS → `libohos_quickjs.so`（配 `ohos-quickjs-bridge.c`） |
-| `build-doh-ohos.sh` | WSL 编译 Rust `core/doh_proxy` → `libdoh_proxy.so` |
-| `build-rhttp-ohos.sh` | WSL 编译 `packages/rhttp`（reqwest + FRB）→ `librhttp.so` |
+| `build-netcore-ohos.sh` | WSL 编译上游 `core/net_core`（`fluxdo_net`，rama + BoringSSL）→ `libfluxdo_net.so`，见下文 |
 | `build-native-animated-image-ohos.sh` | WSL 编译动图解码 → `libnative_animated_image_codec.so` |
-| `build-ohos-unwind-stub.sh` / `ohos-unwind-stub.c` | 交叉链接缺 libgcc unwind 符号时的占位实现 |
+| `build-ohos-unwind-stub.sh` / `ohos-unwind-stub.c` | x86_64 unwind 符号桩，仅供 avif / quickjs / 动图三个脚本的 x86_64 链接使用（net_core 不用） |
+
+> rhttp / DOH 代理（`librhttp.so`、`libdoh_proxy.so`）及其构建脚本已在 2026-11 同步上游 v0.2.30 时删除。
 | `ohos-avif-decode.c` | AVIF 解码包装（导出 `ohos_avif_decode` / `ohos_avif_free`，含 max_dim 降采样） |
 | `fix-hvigorfile-typecheck.ps1` | 修 hvigorfile.ts 让 DevEco 的 `--enable-build-script-type-check` 通过 |
 | `fix-integrity-labels.ps1` | 修 Windows 低完整性标签导致的构建失败 |
@@ -49,6 +50,27 @@ $env:FLUXDO_SIGN_PWD = '<密钥库口令>'   # 不设时回落到 OpenHarmony �
 
 > 调试证书链（OpenHarmony 默认）口令是公开值，仅够本机/开发板调试；正式证书
 > 请走 DevEco 自动签名或自建证书，并把口令放进环境变量。
+
+## 网络核心（`libfluxdo_net.so`）的构建
+
+```powershell
+wsl bash /mnt/c/Users/iceblock/fluxdo/repo/ohos/tools/build-netcore-ohos.sh [x86_64|aarch64|all]
+```
+
+- 源码：`core/net_core`（Rust crate `fluxdo_net`，rama + BoringSSL，支持 H3 / ECH / 浏览器指纹）。
+- 工具链：WSL 宿主 clang 18 + DevEco 自带 NDK 的 sysroot / libc++ / libunwind；rustc ≥ 1.96，已装 `aarch64-unknown-linux-ohos`、`x86_64-unknown-linux-ohos` target；需要 cmake、perl、openssl、libclang-18-dev。
+- 脚本不改 `~/.cargo/config.toml` 与 `~/ohos-bin`，中间产物在 `$WORK`（默认 `~/fluxdo-build`）。
+- 产物：`ohos/entry/libs/{arm64-v8a,x86_64}/libfluxdo_net.so`；脚本末尾打印 sha256、导出符号数与 DT_NEEDED。
+- 运行时：`lib/services/network/core/net_core_bindings.dart` 在鸿蒙加载该库，指纹预设用 android 档；库不可用时降级到 Dart IO 应急路径。
+
+**入库二进制校验值**（2026-11-13 构建，rustc 1.99.1，net_core @ 上游 v0.2.30；DT_NEEDED 只有 `libc.so`，未解析的 C++ / `_Unwind` 符号为 0，导出 22 个 `fluxdo_net_*`）
+
+| 产物 | 大小 | SHA-256 |
+|---|---|---|
+| `ohos/entry/libs/arm64-v8a/libfluxdo_net.so` | 14730616 B | `24d23f527b01d2e74c4eecd41e10408b8096468d7ee6a5332a81a034c9eceaae` |
+| `ohos/entry/libs/x86_64/libfluxdo_net.so` | 16961152 B | `4f2834f9d82bed3f25a5f04d412c0bcefef20227afe7df0d092b7efcaa22dbfd` |
+
+构建要点：zstd 的 `dictBuilder/cover.c` 在 OHOS musl 上缺 `qsort_r`，所以 cc 包装器只对这个文件追加 `-D__ANDROID__`，让它走 C90 `qsort` 兜底（运行时用不到字典训练）。aws-lc-sys 与 BoringSSL 共用脚本自动生成的 CMake 工具链文件，不需要 go。
 
 ## AVIF 原生库（`libohos_avif.so`）的来源与校验
 
