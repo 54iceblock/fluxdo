@@ -653,7 +653,18 @@ class _WebViewPageState extends ConsumerState<WebViewPage> {
                                     webViewEnvironment:
                                         windowsWebViewEnvironment,
                                     initialSettings: WebViewSettings.visible
-                                      ..useShouldOverrideUrlLoading = true,
+                                      ..useShouldOverrideUrlLoading = true
+                                      // 渲染进程崩溃时交给 onRenderProcessGone 处理，
+                                      // 不让引擎自动重载（OHOS ArkWeb 在崩溃后重载会让
+                                      // 浏览器进程跟着断言崩溃 → 整个 app 闪退）。
+                                      ..useOnRenderProcessGone = true,
+                                    onRenderProcessGone: (_, detail) {
+                                      _showLoadError(
+                                        detail.didCrash
+                                            ? '网页渲染进程崩溃'
+                                            : '网页渲染进程已退出',
+                                      );
+                                    },
                                     initialUserScripts: UnmodifiableListView([
                                       ...WebViewSettings.compatPolyfillScripts,
                                       BrowserSafeAreaProbe.userScript,

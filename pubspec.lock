@@ -2586,10 +2586,9 @@ packages:
   video_player_harmonyos:
     dependency: "direct main"
     description:
-      name: video_player_harmonyos
-      sha256: "0d9c22bcf4668b616638d2b316c1db0c6029217ca2c8d51e853d40fd20c4a7fd"
-      url: "https://pub.dev"
-    source: hosted
+      path: "packages/video_player_harmonyos"
+      relative: true
+    source: path
     version: "0.0.1"
   video_player_media_kit:
     dependency: "direct main"

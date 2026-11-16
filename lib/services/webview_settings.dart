@@ -10,6 +10,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../constants.dart';
+import '../utils/platform_utils.dart';
 import 'eruda_settings_service.dart';
 import 'log/log_writer.dart';
 import 'network/doh/network_settings_service.dart';
@@ -243,11 +244,28 @@ class WebViewSettings {
     forMainFrameOnly: true,
   );
 
+  /// OHOS：在 polyfill 之前声明一个不匹配的 es-module-shims 版本号，
+  /// 让 bundle 内的 es-module-shims 在版本检查处直接 return。
+  ///
+  /// 原因：es-module-shims 启动时会用 `srcdoc` iframe 做特性探测，
+  /// ArkWeb（HarmonyOS 7）提交 about:srcdoc 子框架时渲染进程触发
+  /// `DocumentLoader::InitializeWindow` 断言崩溃，随后浏览器进程在
+  /// `SetOriginDependentStateOfNewFrame` 断言崩溃，整个 app 闪退。
+  /// ArkWeb 基于新版 Chromium，原生支持 importmap / 模块，不需要这个 shim；
+  /// polyfill 其余部分（core-js、错误回传、eruda）照常生效。
+  static final UserScript _ohosDisableEsModuleShimsScript = UserScript(
+    source:
+        "window.esmsInitOptions = Object.assign(window.esmsInitOptions || {}, "
+        "{ version: 'fluxdo-ohos-disabled' });",
+    injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    forMainFrameOnly: true,
+  );
+
   /// 兼容性脚本列表，传给 `InAppWebView.initialUserScripts`。
   /// 必须先在启动期调 [preloadPolyfill]；未加载时返回空列表 + 一次性告警。
   ///
   /// Eruda 开关关闭时 (默认), 在 polyfill 前追加禁用脚本; 打开时原样返回让
-  /// bundle 内的 eruda 正常初始化。
+  /// bundle 内的 eruda 正常初始化。OHOS 上再前置 es-module-shims 禁用脚本。
   static UnmodifiableListView<UserScript> get compatPolyfillScripts {
     final cached = _compatPolyfillScripts;
     if (cached == null) {
@@ -259,10 +277,11 @@ class WebViewSettings {
       }
       return UnmodifiableListView<UserScript>([]);
     }
-    if (!ErudaSettingsService.instance.enabled) {
-      return UnmodifiableListView<UserScript>([_erudaDisableScript, ...cached]);
-    }
-    return cached;
+    return UnmodifiableListView<UserScript>([
+      if (PlatformUtils.isOhos) _ohosDisableEsModuleShimsScript,
+      if (!ErudaSettingsService.instance.enabled) _erudaDisableScript,
+      ...cached,
+    ]);
   }
 
   /// 注册 JS 错误 / lifecycle 回传 handler，把 WebView 内的事件落到 LogWriter。

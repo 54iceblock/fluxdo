@@ -24,6 +24,7 @@ import '../modules/mini_apps/mini_app_url.dart';
 import '../modules/mini_apps/mini_app_embed_card.dart';
 import '../pages/image_viewer_page.dart';
 import '../pages/mermaid_viewer_page.dart';
+import '../pages/webview_page.dart';
 import '../pages/topic_detail_page/topic_detail_page.dart';
 import '../models/topic.dart' show Post, MentionedUser, LinkCount;
 import '../providers/download_provider.dart';
@@ -39,6 +40,7 @@ import '../services/toast_service.dart';
 import '../utils/discourse_url_parser.dart';
 import '../utils/html_to_markdown.dart';
 import '../utils/link_launcher.dart';
+import '../utils/platform_utils.dart';
 import '../utils/svg_utils.dart';
 import '../utils/url_helper.dart';
 import '../widgets/common/image_context_menu.dart';
@@ -2356,7 +2358,12 @@ class _VideoErrorFallback extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return InkWell(
-      onTap: () => launchInExternalBrowser(url),
+      // OHOS：系统浏览器对论坛附件 URL（Content-Disposition: attachment /
+      // 改名上传）直接走下载，不会播放；用内置浏览器（ArkWeb <video>
+      // 按内容嗅探）打开，至少能在应用内播放。其余平台保持外部浏览器。
+      onTap: () => PlatformUtils.isOhos
+          ? WebViewPage.open(context, url)
+          : launchInExternalBrowser(url),
       child: Container(
         alignment: Alignment.center,
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),

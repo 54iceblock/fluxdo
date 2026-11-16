@@ -178,7 +178,11 @@ dependencies:
   url_launcher_ohos: ^6.3.0
   # Wayaer/harmony_flutter_packages 的联邦实现（已发布到 pub.dev，0.0.1）
   image_picker_harmonyos: 0.0.1
-  video_player_harmonyos: 0.0.1
+  # OHOS 移植：vendored 到 packages/video_player_harmonyos —— 上游 0.0.1 的
+  # create() 返回自增 playerId，但事件通道按 textureId 命名，Dart 收不到
+  # initialized → 所有视频初始化超时。详见该目录 VENDOR.md。
+  video_player_harmonyos:
+    path: packages/video_player_harmonyos
   # OHOS 移植：vendored 到 packages/just_audio_harmonyos —— 上游 0.0.1 的
   # MediaSource.ets 未实现 API 26 新增的 enableOfflineCache()/getID()，
   # ArkTS 编译报 "incorrectly implements media.MediaSource"。本地副本已补齐。
